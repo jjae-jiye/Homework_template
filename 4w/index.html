@@ -1,25 +1,31 @@
 <!doctype html>
-<html lang="">
+<html lang="ko">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>p5.js example</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Dynamic Balance</title>
+    <script src="https://cdn.jsdelivr.net/npm/p5@2/lib/p5.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/matter-js@0.20.0/build/matter.min.js"></script>
     <style>
-      body {
-        padding: 0;
+      html, body {
+        height: 100%;
         margin: 0;
-        background-color: #1b1b1b;
-
-        overflow: none;
+        padding: 0;
+        overflow: hidden;
+        background-color: #a9c4c9;
+      }
+      body {
+        touch-action: none;
         overscroll-behavior: none;
         user-select: none;
         -webkit-user-select: none;
         -webkit-touch-callout: none;
       }
+      canvas {
+        display: block;
+        touch-action: none;
+      }
     </style>
-    <script src="../p5.min.js"></script>
-    <!-- <script src="../addons/p5.sound.js"></script> -->
-    <script src="../addons/matter.js"></script>
     <script src="sketch.js"></script>
   </head>
 
