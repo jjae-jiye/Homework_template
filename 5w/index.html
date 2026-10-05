@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bubblegum — Delete, Delete, Delete</title>
+    <style>
+      body {
+        padding: 0;
+        margin: 0;
+        background-color: #6fa7e6;
+
+        overflow: hidden;
+        overscroll-behavior: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+      }
+      canvas {
+        display: block;
+        touch-action: none;
+      }
+      /* 왼쪽 상단 작은 설명 */
+      #info {
+        position: fixed;
+        top: 18px;
+        left: 20px;
+        color: #fff;
+        font-family: -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+        font-size: 11px;
+        line-height: 1.7;
+        letter-spacing: 0.02em;
+        text-shadow: 0 0 6px rgba(0, 60, 140, 0.35);
+        pointer-events: none;
+      }
+      #info b {
+        display: block;
+        font-size: 12px;
+        letter-spacing: 0.18em;
+        margin-bottom: 4px;
+      }
+    </style>
+    <script src="../p5.min.js"></script>
+    <!-- <script src="../addons/p5.sound.js"></script> -->
+    <script src="../addons/matter.js"></script>
+    <script src="sketch.js"></script>
+    <script src="Gum.js"></script>
+    <script src="Piece.js"></script>
+  </head>
+
+  <body>
+    <div id="info">
+      <b>BUBBLEGUM</b>
+      Click 한 번 — 팡, 터뜨리기<br />
+      Drag — 쉬이이, 늘려서 바람 빼기<br />
+      빠르게 Click ×5 — 뿅뿅, 구멍 내서 터뜨리기
+    </div>
+    <main></main>
+  </body>
+</html>
