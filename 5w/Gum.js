@@ -3,6 +3,7 @@
 const MOUTH = { x: 810, y: 572 }; // 사진 속 입술 위치
 const R_MAX = 110; // 최대 크기
 const HANG_TIME = 3000; // 늘어난 껌이 입으로 되감기는 시간
+const STRETCH_MAX = 330; // 이만큼 늘어나면 팡 (사진 기준 px)
 const TAP_GAP = 350; // 이 시간 안에 다음 클릭이 오면 '연속 클릭'
 const TAPS_TO_BURST = 5; // 터지는 데 필요한 연속 클릭 수
 
@@ -43,13 +44,14 @@ class Gum {
         this.lastTap = null;
       }
     } else if (this.state === "stretch") {
-      // 레벨 2: 마우스를 따라 늘어나며 바람이 빠짐
+      // 레벨 2: 마우스를 따라 주욱 늘어남
       let m = toImage(mouseX, mouseY);
       this.end.x += (m.x - this.end.x) * 0.35;
       this.end.y += (m.y - this.end.y) * 0.35;
-      this.r -= 0.22;
-      this.wrinkle = min(1, this.wrinkle + 0.01);
-      if (this.r < 10) this.vanish(); // 다 쪼그라들면 사라짐
+      let len = dist(this.end.x, this.end.y, MOUTH.x, MOUTH.y);
+      this.tension = constrain(len / STRETCH_MAX, 0, 1);
+      this.shake = max(this.shake, pow(this.tension, 3) * 0.8); // 한계에 가까울수록 파르르 떨림
+      if (len > STRETCH_MAX) this.stretchPop(); // 한계를 넘으면 팡
     } else if (this.state === "hanging") {
       // 레벨 2 이후: 늘어난 채 멈춘 껌이 서서히 입으로 되감김
       let p = constrain((millis() - this.hangStart) / HANG_TIME, 0, 1);
@@ -173,6 +175,37 @@ class Gum {
         )
       );
     }
+    this.vanish();
+  }
+
+  // 레벨 2 완료: 너무 늘어나서 팡
+  stretchPop() {
+    let g = this.geom();
+    this.effects.push({ type: "pang", x: g.E.x, y: g.E.y, r: g.endR, t: 0, life: 9 });
+    // 몸통 조각
+    for (let i = 0; i < 18; i++) {
+      let a = random(TWO_PI);
+      let d = g.endR * random(0.5, 1);
+      let sp = random(2, 7);
+      pieces.push(
+        new Piece(g.E.x + cos(a) * d, g.E.y + sin(a) * d, random(3, 7), cos(a) * sp, sin(a) * sp - 1)
+      );
+    }
+    // 늘어나 있던 줄기 조각
+    for (let i = 0; i < 12; i++) {
+      let t = random(0.1, 0.9);
+      let w = this.widthAt(g, t);
+      pieces.push(
+        new Piece(
+          g.B.x + (g.E.x - g.B.x) * t + g.n.x * random(-w, w),
+          g.B.y + (g.E.y - g.B.y) * t + g.n.y * random(-w, w),
+          random(2, 5),
+          random(-2, 2),
+          random(-3, 1)
+        )
+      );
+    }
+    this.tension = 0;
     this.vanish();
   }
 
