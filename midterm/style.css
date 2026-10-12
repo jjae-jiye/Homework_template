@@ -1,0 +1,85 @@
+/* 손자국 — 스타일
+   Layout: 흰 스튜디오 바닥 한 장. 작업 화면은 점토 하나와 아래 표본 라벨,
+   홈은 점토들이 놓인 선반과 화면 아래에서 고개를 내민 반죽 덩어리. */
+:root{
+  --paper:#f3f1ed;
+  --ink:#322e29;
+  --ink-2:rgba(50,46,41,.6);
+  --ink-3:rgba(50,46,41,.4);
+  --line:rgba(50,46,41,.13);
+  --chip:rgba(250,249,246,.8);
+  --toast:#2e2a25;
+  --toast-ink:#f4f0e9;
+  --toast-act:#e2c9a4;
+  --f-ui:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --f-stamp:"Nanum Myeongjo","AppleMyungjo","Batang",serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0;background:var(--paper);color:var(--ink);font-family:var(--f-ui);overflow:hidden;overscroll-behavior:none;-webkit-text-size-adjust:100%}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+
+#app{position:fixed;inset:0}
+.view{position:absolute;inset:0;transform:none;transition:opacity .32s ease,transform .32s ease,visibility 0s}
+.view.off{opacity:0;visibility:hidden;pointer-events:none;transform:scale(.985);transition:opacity .32s ease,transform .32s ease,visibility 0s .32s}
+
+/* ───── 작업 화면 ───── */
+#stage{position:absolute;inset:0;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;cursor:pointer}
+#gl,#fx{position:absolute;left:0;top:0;width:100%;height:100%;display:block;pointer-events:none}
+
+.work-top{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 0;pointer-events:none}
+.home-btn{pointer-events:auto;display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 16px 0 12px;border:1px solid var(--line);border-radius:999px;background:var(--chip);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);font-size:13.5px;font-weight:600}
+.home-btn svg{width:17px;height:17px;opacity:.82}
+.mode{pointer-events:auto;display:inline-flex;padding:3px;gap:2px;border:1px solid var(--line);border-radius:999px;background:var(--chip);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.mode button{border:0;background:transparent;border-radius:999px;height:30px;padding:0 13px;font-size:12.5px;font-weight:500;color:var(--ink-2)}
+.mode button[aria-pressed="true"]{background:var(--ink);color:var(--paper);font-weight:600}
+#typer{position:fixed;left:0;top:0;width:2px;height:22px;margin:0;padding:0;border:0;outline:none;resize:none;overflow:hidden;opacity:0;font-size:16px;line-height:22px;color:transparent;background:transparent;caret-color:transparent;pointer-events:none;z-index:-1}
+
+.specimen{position:absolute;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;gap:8px;padding:0 16px calc(env(safe-area-inset-bottom,0px) + 22px);text-align:center;pointer-events:none}
+.hint{margin:0;font-size:14.5px;font-weight:500;color:var(--ink-2);min-height:1.5em;transition:opacity .35s ease}
+.hint.fade{opacity:0}
+.label{margin:0;font-family:var(--f-mono);font-size:11.5px;letter-spacing:.02em;color:var(--ink-3);font-variant-numeric:tabular-nums}
+
+/* ───── 홈 ───── */
+#home{overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.home-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;max-width:1080px;margin:0 auto;padding:calc(env(safe-area-inset-top,0px) + 26px) 20px 4px}
+.wordmark{margin:0;font-family:var(--f-stamp);font-weight:800;font-size:28px;letter-spacing:-.01em;line-height:1.1;text-wrap:balance}
+.sub{margin:6px 0 0;font-size:13px;color:var(--ink-2)}
+.count{font-family:var(--f-mono);font-size:12px;color:var(--ink-3);white-space:nowrap;padding-bottom:3px;font-variant-numeric:tabular-nums}
+
+.shelf{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px 16px;max-width:1080px;margin:0 auto;padding:14px 20px 240px}
+.card{display:flex;flex-direction:column;gap:0;min-width:0;border-radius:14px;touch-action:pan-y;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;cursor:pointer}
+.plate{position:relative;width:100%;max-width:100%;aspect-ratio:1/1}
+.squash{position:absolute;inset:0;transform-origin:50% 58%;transition:transform .45s cubic-bezier(.3,1.5,.5,1)}
+.squash canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.card.dying .squash{transform:scale(1.6,.03)!important;opacity:0;transition:transform .3s ease-in,opacity .25s ease-in .12s!important}
+.cap{display:flex;flex-direction:column;gap:3px;padding:0 6px 12px;min-width:0}
+.cap .no{font-family:var(--f-mono);font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.cap .first{font-size:13.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cap .first.none{color:var(--ink-3)}
+.empty{max-width:1080px;margin:0 auto;padding:30px 20px;color:var(--ink-2);font-size:14px;text-align:center}
+
+.dough-fade{position:fixed;left:0;right:0;bottom:0;height:210px;background:linear-gradient(to bottom,rgba(243,241,237,0),var(--paper) 55%);pointer-events:none}
+.dough-cap{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 128px);margin:0;text-align:center;font-size:12.5px;color:var(--ink-2);pointer-events:none}
+.dough{position:fixed;left:50%;bottom:0;width:280px;height:118px;margin-left:-140px;touch-action:none;cursor:grab;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
+.dough canvas{position:absolute;left:0;top:0;width:280px;height:280px;transform-origin:50% 45%;transition:transform .45s cubic-bezier(.3,1.6,.5,1)}
+.dough.pull canvas{transition:none}
+
+#piece{position:fixed;left:0;top:0;width:96px;height:96px;pointer-events:none;opacity:0;z-index:20;will-change:transform}
+#piece.on{opacity:1}
+#piece.fly{transition:transform .4s cubic-bezier(.2,.8,.2,1),opacity .25s ease .3s;opacity:0}
+
+/* ───── 공통 ───── */
+.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + var(--toast-b,92px));transform:translate(-50%,10px);opacity:0;z-index:30;display:flex;align-items:center;gap:14px;width:max-content;max-width:calc(100% - 32px);padding:11px 16px;border-radius:14px;background:var(--toast);color:var(--toast-ink);font-size:13.5px;font-weight:500;line-height:1.4;box-shadow:0 10px 30px rgba(60,46,30,.22);pointer-events:none;transition:opacity .22s,transform .22s}
+.toast.on{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+.toast button{border:0;background:none;padding:0;color:var(--toast-act);font-weight:600;font-size:13.5px;white-space:nowrap}
+body.at-home .toast{--toast-b:176px}
+
+.fallback{position:fixed;inset:0;display:grid;place-items:center;padding:24px;background:var(--paper);text-align:center;color:var(--ink-2);font-size:15px;line-height:1.6;z-index:50}
+
+@media (prefers-reduced-motion: reduce){
+  .view,.view.off,.squash,.dough canvas,.toast,#piece.fly,.hint{transition:none!important}
+}

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>손자국</title>
+<meta name="theme-color" content="#f3f1ed">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&family=Nanum+Myeongjo:wght@700;800&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="app">
+
+  <!-- 작업 화면: 점토 하나를 만지는 곳 -->
+  <section class="view" id="work" aria-label="점토 작업">
+    <div id="stage">
+      <canvas id="gl"></canvas>
+      <canvas id="fx"></canvas>
+    </div>
+    <header class="work-top">
+      <button class="home-btn" id="home-btn" type="button">
+        <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><ellipse cx="6" cy="6.2" rx="3.6" ry="3.1"/><ellipse cx="14.2" cy="5.8" rx="3.2" ry="3.4"/><ellipse cx="5.8" cy="14.2" rx="3.3" ry="3.5"/><ellipse cx="14" cy="14" rx="3.7" ry="3.2"/></svg>
+        <span>홈</span>
+      </button>
+      <div class="mode" id="mode" role="group" aria-label="새기는 방법" hidden>
+        <button type="button" data-mode="draw" aria-pressed="true">마우스로 그리기</button>
+        <button type="button" data-mode="type" aria-pressed="false">키보드로 쓰기</button>
+      </div>
+    </header>
+    <textarea id="typer" aria-label="점토에 새길 글" spellcheck="false" autocomplete="off" tabindex="-1"></textarea>
+    <footer class="specimen">
+      <p class="hint" id="hint"></p>
+      <p class="label" id="label"></p>
+    </footer>
+  </section>
+
+  <!-- 홈: 점토들이 놓인 선반 -->
+  <section class="view off" id="home" aria-label="모아보기">
+    <header class="home-head">
+      <div>
+        <h1 class="wordmark">손자국</h1>
+        <p class="sub">새긴 글은 숨어 있어요. 문질러 물을 묻히면 보여요.</p>
+      </div>
+      <span class="count" id="count"></span>
+    </header>
+    <div class="shelf" id="shelf"></div>
+    <p class="empty" id="empty" hidden>아직 점토가 없어요. 아래 반죽을 위로 끌어 떼어내세요.</p>
+    <div class="dough-fade" aria-hidden="true"></div>
+    <p class="dough-cap">반죽을 위로 끌어 떼어내기</p>
+    <div class="dough" id="dough" role="button" tabindex="0" aria-label="반죽에서 새 점토 떼어내기"><canvas id="dough-cv"></canvas></div>
+  </section>
+
+</main>
+
+<canvas id="piece" aria-hidden="true"></canvas>
+<div class="toast" id="toast" role="status" aria-live="polite"><span id="toast-msg"></span><button id="toast-act" type="button" hidden></button></div>
+<div class="fallback" id="fallback" hidden><p>이 브라우저에서는 점토를 그릴 수 없어요.<br>크롬이나 사파리 최신 버전에서 열어주세요.</p></div>
+
+<script src="script.js"></script>
+</body>
+</html>
