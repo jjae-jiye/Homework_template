@@ -913,7 +913,7 @@ function pressMove(e, p, f) {
   g.revs = g.revs.filter(t => tnow - t < 650);
   if (!g.erase && g.revs.length >= 3) startErase(g);
   if (g.erase) { eraseTo(g, p.x, p.y); return; }
-  const writer = g.kind === 'pen' || g.kind === 'mouse' || !penSeen;   // 펜슬을 쓰기 시작하면 손가락은 '손'이 된다
+     const writer = true;   // 펜슬·손가락·마우스 모두 그으면 새겨진다
   if (writer && writable(cur)) {
     if (!g.stroke && !g.ended) { g.stroke = strokeBegin(p.x0, p.y0, g.kind === 'pen' ? f : 1); learn('write'); }
     if (g.stroke) { g.stroke = strokeMove(g.stroke, p.x, p.y, f, false); if (!g.stroke) g.ended = true; }
