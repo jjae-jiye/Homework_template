@@ -34,15 +34,12 @@
   <!-- 홈: 점토들이 놓인 물레 -->
   <section class="view off" id="home" aria-label="물레">
     <header class="home-head">
-      <div>
-        <h1 class="wordmark">손자국</h1>
-        <p class="sub">돌려서 찾고, 문질러서 읽어요</p>
-      </div>
+      <div></div>
       <span class="count" id="count"></span>
     </header>
     <div class="wheel-wrap">
       <canvas id="wheel" role="img" aria-label="물레 진열장. 판을 돌려 지난 점토를 찾고, 점토를 톡 치면 열려요"></canvas>
-      <p class="wheel-info" id="wheel-info" aria-live="polite"></p>
+      <p class="wheel-info" id="wheel-info" aria-live="polite" hidden></p>
     </div>
     <p class="dough-cap">흙을 위로 끌어 새 점토 떼어내기</p>
     <div class="dough" id="dough" role="button" tabindex="0" aria-label="흙에서 새 점토 떼어내기"><canvas id="dough-cv"></canvas></div>
