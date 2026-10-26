@@ -38,6 +38,10 @@ const MAX_MARKS = 360;   // 지문·자국 개수 상한 (새긴 획은 지우�
 const $ = s => document.querySelector(s);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
+// 수업(p5.js)에서 쓰던 함수들을 같은 이름·같은 계산으로 — 라이브러리 없이 이 파일 안에서 정의
+const dist = (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1);                  // 두 점 사이 거리
+const map = (v, a1, b1, a2, b2) => a2 + (v - a1) * (b2 - a2) / (b1 - a1);       // 값의 범위 바꾸기
+const millis = () => performance.now();                                         // 시작 후 지난 시간(ms)
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 const now = () => Date.now();
 const r4 = v => Math.round(v * 1e4) / 1e4;
@@ -806,7 +810,7 @@ function strokeEnd(st) {                                         // 손가락 �
 }
 // 누른 힘: 펜슬은 실제 압력, 손가락·마우스는 천천히 누를수록 깊게
 function forceOf(e, p) {
-  if (e.pointerType === 'pen') return clamp(.15 + 1.45 * Math.pow(clamp(e.pressure || .5, .02, 1), 1.1), .15, 1.6);
+  if (e.pointerType === 'pen') return clamp(map(Math.pow(clamp(e.pressure || .5, .02, 1), 1.1), 0, 1, .15, 1.6), .15, 1.6);   // 필압 0~1 → 깊이 .15~1.6
   const dt = Math.max(1, e.timeStamp - (p.lt || e.timeStamp - 16)), v = Math.hypot(e.clientX - (p.lx || e.clientX), e.clientY - (p.ly || e.clientY)) / dt;
   return clamp(1.15 - v * .45, .45, 1.1);
 }
@@ -852,8 +856,22 @@ function wetStroke(x0, y0, x1, y1) {
   return d;
 }
 function dryWater(ctx, w, h, a) { ctx.globalCompositeOperation = 'destination-out'; ctx.fillStyle = `rgba(0,0,0,${a})`; ctx.fillRect(0, 0, w, h); ctx.globalCompositeOperation = 'source-over'; }
+// 가루 한 톨 — 수업의 Bubble 클래스처럼: constructor로 만들고, display()로 그리고, checkDeath()로 다 사라졌는지 확인
+class Dust {
+  constructor(x, y, rgb) {
+    this.x = x; this.y = y;
+    this.vx = (Math.random() - .5) * 130; this.vy = -Math.random() * 90 - 10;
+    this.life = 1; this.s = .8 + Math.random() * 1.6; this.rgb = rgb;
+    this.death = false;
+  }
+  checkDeath() { this.life -= 1 / 45; if (this.life <= 0) this.death = true; }
+  display(ctx) {
+    this.vy += 400 / 60; this.x += this.vx / 60; this.y += this.vy / 60;
+    ctx.fillStyle = `rgba(${this.rgb},${this.life.toFixed(3)})`; ctx.beginPath(); ctx.arc(this.x, this.y, this.s, 0, Math.PI * 2); ctx.fill();
+  }
+}
 function dust(x, y, n, rgb) {
-  for (let i = 0; i < n; i++) particles.push({ x, y, vx: (Math.random() - .5) * 130, vy: -Math.random() * 90 - 10, life: 1, s: .8 + Math.random() * 1.6, rgb });
+  for (let i = 0; i < n; i++) particles.push(new Dust(x, y, rgb));
   fxDirty = true;
 }
 function endWarm() { rubbing = false; if (moist(cur) > .25 && cur.crack) { cur.crack = null; cur.v++; } cur.seen = now(); saveSoon(); }
@@ -930,7 +948,7 @@ function captureSnap(m) {                                       // 지금 보이
   shatter.snapOk = true;
 }
 function tapDry(x, y) {
-  const t = performance.now();
+  const t = millis();                                            // 수업: 더블탭 — 지난 탭과의 시간 차이로 연속 판단
   pokeN = t - pokeT < TAP_GAP ? pokeN + 1 : 1; pokeT = t;
   if (!shatter) { shatter = buildShatter(cur); dirtyGL = true; }
   const S = shatter, R = curR(), px = (x - cx) / R, py = (y - cy) / R, sc = Math.sqrt(cur.sx * cur.sy);
@@ -953,7 +971,7 @@ function spawnChips(x, y, n, sp, size) {                        // 튀어나가�
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2, v = sp * (.3 + Math.random()), s = (1.4 + Math.random() * 3.2) * size * Math.max(1, Z * .7), k = 3 + (Math.random() * 2 | 0), pts = [];
     for (let j = 0; j < k; j++) { const b = j / k * Math.PI * 2 + Math.random() * .8, rr = s * (.55 + Math.random() * .6); pts.push([Math.cos(b) * rr, Math.sin(b) * rr]); }
-    chips.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, rot: Math.random() * 6, vr: (Math.random() - .5) * 8, pts, th: .8 + s * .25, life: 1, fade: .004 + Math.random() * .004 });
+    chips.push(new Chip(x, y, Math.cos(a) * v, Math.sin(a) * v, pts, .8 + s * .25));
   }
 }
 function breakApart() {
@@ -1021,18 +1039,29 @@ function drawShatter(ctx, t) {
   if (e > 2600) { endCrumble(); return; }
   fxDirty = true;
 }
-function drawChips(ctx) {
-  chips = chips.filter(q => (q.life -= q.fade) > 0);
-  for (const q of chips) {
-    q.x += q.vx / 60; q.y += q.vy / 60; q.vx *= .88; q.vy *= .88; q.rot += q.vr / 60; q.vr *= .9;
-    const a = Math.min(1, q.life * 2.5);
-    ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.rot); ctx.globalAlpha = a;
-    ctx.beginPath(); q.pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1] + q.th) : ctx.moveTo(p[0], p[1] + q.th)); ctx.closePath();
-    ctx.fillStyle = '#ad9e8a'; ctx.fill();
-    ctx.beginPath(); q.pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath();
-    ctx.fillStyle = '#e3dccf'; ctx.fill(); ctx.lineWidth = .6; ctx.strokeStyle = 'rgba(255,252,246,.6)'; ctx.stroke();
+// 흙 부스러기 한 조각 — Bubble 클래스와 같은 짜임 (constructor / display / checkDeath)
+class Chip {
+  constructor(x, y, vx, vy, pts, th) {
+    this.x = x; this.y = y; this.vx = vx; this.vy = vy;
+    this.rot = Math.random() * 6; this.vr = (Math.random() - .5) * 8;
+    this.pts = pts; this.th = th;                                // 꼭짓점들, 두께
+    this.life = 1; this.fade = .004 + Math.random() * .004;
+    this.death = false;
+  }
+  checkDeath() { this.life -= this.fade; if (this.life <= 0) this.death = true; }
+  display(ctx) {
+    this.x += this.vx / 60; this.y += this.vy / 60; this.vx *= .88; this.vy *= .88; this.rot += this.vr / 60; this.vr *= .9;
+    ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.rot); ctx.globalAlpha = Math.min(1, this.life * 2.5);
+    ctx.beginPath(); this.pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1] + this.th) : ctx.moveTo(p[0], p[1] + this.th)); ctx.closePath();
+    ctx.fillStyle = '#ad9e8a'; ctx.fill();                       // 옆면
+    ctx.beginPath(); this.pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath();
+    ctx.fillStyle = '#e3dccf'; ctx.fill(); ctx.lineWidth = .6; ctx.strokeStyle = 'rgba(255,252,246,.6)'; ctx.stroke();   // 윗면
     ctx.restore();
   }
+}
+function drawChips(ctx) {
+  for (const q of chips) { q.checkDeath(); if (!q.death) q.display(ctx); }
+  for (let i = chips.length - 1; i >= 0; i--) if (chips[i].death === true) chips.splice(i, 1);
   if (chips.length) fxDirty = true;
 }
 function endCrumble() {
@@ -1067,7 +1096,7 @@ function turnSoften(g, x, y) {
    굳은 점토 — 문지르기 = 물 묻혀 글 보기, 빠르게 톡톡 여러 번 = 조각나 부서짐(지우기)
               방금 새로 만든 점토만 가장자리를 동글동글 문지르면 다시 말랑해진다
    깨진 점토 — 굳은 점토와 같다: 문지르면 물만 묻고, 다시 말랑해지지 않는다 */
-const stage = $('#stage'), pts = new Map();
+const stage = $('#stage'), pts = new Map();   // 수업: 손가락 번호(pointerId) → 그 손가락 정보, Map() 구조
 let gest = null, lastTwoTap = null, tap2 = null;   // tap2: 지금 두 손가락이 톡 닿았는지 (마른 점토여도)
 const fillZoom = () => { const R = R0 * shrinkOf(moist(cur)); return clamp(Math.min(W / (2 * R * cur.sx), Hs / (2 * R * cur.sy)) * .94, 1.4, 5); };
 stage.addEventListener('contextmenu', e => e.preventDefault());
@@ -1076,7 +1105,7 @@ stage.addEventListener('pointerdown', e => {
   try { stage.setPointerCapture(e.pointerId); } catch (_) { /* 무시 */ }
   const kind = e.pointerType;
   if (kind === 'pen') notePen();
-  const p = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t0: performance.now(), kind, lx: e.clientX, ly: e.clientY, lt: e.timeStamp };
+  const p = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t0: millis(), kind, lx: e.clientX, ly: e.clientY, lt: e.timeStamp };
   pts.set(e.pointerId, p);
   const dry = moist(cur) === 0;
   if (pts.size === 1) {
@@ -1092,7 +1121,7 @@ stage.addEventListener('pointerdown', e => {
     return;
   }
   if ([...pts.values()].some(q => q.kind === 'pen')) return;   // 펜슬을 쥔 손이 화면에 닿아도 무시
-  tap2 = pts.size === 2 ? { t0: performance.now(), maxMove: 0, x: [...pts.values()].reduce((s, q) => s + q.x / 2, 0), y: [...pts.values()].reduce((s, q) => s + q.y / 2, 0) } : null;
+  tap2 = pts.size === 2 ? { t0: millis(), maxMove: 0, x: [...pts.values()].reduce((s, q) => s + q.x / 2, 0), y: [...pts.values()].reduce((s, q) => s + q.y / 2, 0) } : null;
   if (gest && gest.timer) clearTimeout(gest.timer);
   if (gest && gest.type === 'wet' && gest.hold) endWarm();
   const list = [...pts.values()], anyOn = list.some(q => rAt(q.x, q.y) <= 1.05);
@@ -1101,8 +1130,8 @@ stage.addEventListener('pointerdown', e => {
   if (cur.broken) { gest = { type: 'none' }; return; }
   if (pts.size === 2) {
     const ids = [...pts.keys()], a = pts.get(ids[0]), b = pts.get(ids[1]);
-    gest = { type: 'two', ids, t0: performance.now(), maxMove: 0, z0: Z, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, m0x: (a.x + b.x) / 2, m0y: (a.y + b.y) / 2,
-      ux0: Math.abs(b.x - a.x), uy0: Math.abs(b.y - a.y), d0: Math.hypot(b.x - a.x, b.y - a.y), sx0: cur.sx, sy0: cur.sy };
+    gest = { type: 'two', ids, t0: millis(), maxMove: 0, z0: Z, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, m0x: (a.x + b.x) / 2, m0y: (a.y + b.y) / 2,
+      ux0: Math.abs(b.x - a.x), uy0: Math.abs(b.y - a.y), d0: dist(a.x, a.y, b.x, b.y), sx0: cur.sx, sy0: cur.sy };
   }
 });
 stage.addEventListener('pointermove', e => {
@@ -1114,19 +1143,19 @@ stage.addEventListener('pointermove', e => {
 function moveOne(e, p) {
   const f = gest && gest.type === 'press' ? forceOf(e, p) : 1;
   p.x = e.clientX; p.y = e.clientY;
-  if (tap2) tap2.maxMove = Math.max(tap2.maxMove, Math.hypot(p.x - p.x0, p.y - p.y0));
+  if (tap2) tap2.maxMove = Math.max(tap2.maxMove, dist(p.x0, p.y0, p.x, p.y));
   if (!gest) { p.lx = p.x; p.ly = p.y; p.lt = e.timeStamp; return; }
   if (gest.type === 'two') {
     const a = pts.get(gest.ids[0]), b = pts.get(gest.ids[1]); if (!a || !b) return;
-    for (const q of [a, b]) gest.maxMove = Math.max(gest.maxMove, Math.hypot(q.x - q.x0, q.y - q.y0));
+    for (const q of [a, b]) gest.maxMove = Math.max(gest.maxMove, dist(q.x0, q.y0, q.x, q.y));
     const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
     if (Z > 1) {                                                                             // 확대 중: 벌리고 오므려 확대 조절, 끌어서 자리 옮기기
       zoomAnim = null;
-      const z1 = clamp(gest.z0 * Math.hypot(b.x - a.x, b.y - a.y) / (gest.d0 || 1), 1, 6), zf = z1 / Z;
+      const z1 = clamp(gest.z0 * dist(a.x, a.y, b.x, b.y) / (gest.d0 || 1), 1, 6), zf = z1 / Z;
       cx = mx - (gest.mx - cx) * zf; cy = my - (gest.my - cy) * zf; Z = z1; clampPan(); dirtyGL = true;
     }
     else if (gest.maxMove > 8) {                                                             // 펼치기
-      const k = 2 * R0, iso = .45 * (Math.hypot(b.x - a.x, b.y - a.y) - gest.d0) / k;
+      const k = 2 * R0, iso = .45 * (dist(a.x, a.y, b.x, b.y) - gest.d0) / k;
       setSpread(cur, gest.sx0 + (Math.abs(b.x - a.x) - gest.ux0) / k + iso, gest.sy0 + (Math.abs(b.y - a.y) - gest.uy0) / k + iso);
       cur.lt = now();
     }
@@ -1134,7 +1163,7 @@ function moveOne(e, p) {
     return;
   }
   if (e.pointerId !== gest.id) return;
-  gest.moved = Math.max(gest.moved, Math.hypot(p.x - p.x0, p.y - p.y0));
+  gest.moved = Math.max(gest.moved, dist(p.x0, p.y0, p.x, p.y));
   if (gest.type === 'edge') {
     if (gest.moved < 4) return;
     const ox = p.x0 - cx, oy = p.y0 - cy, ol = Math.hypot(ox, oy) || 1, dx = ox / ol, dy = oy / ol;
@@ -1144,13 +1173,13 @@ function moveOne(e, p) {
   } else if (gest.type === 'press') {
     if (gest.moved >= 6) pressMove(e, p, f);
   } else if (gest.type === 'wet' && !gest.hold) {
-    if (Math.hypot(p.x - gest.lx, p.y - gest.ly) >= 2) { clearTimeout(gest.timer); wetStroke(gest.lx, gest.ly, p.x, p.y); gest.lx = p.x; gest.ly = p.y; }
+    if (dist(gest.lx, gest.ly, p.x, p.y) >= 2) { clearTimeout(gest.timer); wetStroke(gest.lx, gest.ly, p.x, p.y); gest.lx = p.x; gest.ly = p.y; }
     turnSoften(gest, p.x, p.y);
   }
   p.lx = p.x; p.ly = p.y; p.lt = e.timeStamp;
 }
 function pressMove(e, p, f) {
-  const g = gest, tnow = performance.now(), sd = Math.hypot(p.x - g.ax, p.y - g.ay);
+  const g = gest, tnow = millis(), sd = dist(g.ax, g.ay, p.x, p.y);
   if (sd >= 6) {
     const dx = (p.x - g.ax) / sd, dy = (p.y - g.ay) / sd;
     if (g.pdx !== undefined && dx * g.pdx + dy * g.pdy < -.3) g.revs.push(tnow);
@@ -1165,15 +1194,15 @@ function pressMove(e, p, f) {
     if (g.stroke) { g.stroke = strokeMove(g.stroke, p.x, p.y, f, false); if (!g.stroke) { g.ended = true; strokeEnd(g.last); } }
     return;
   }
-  if (Math.hypot(p.x - g.lx, p.y - g.ly) >= 7) { smearSeg(g.lx, g.ly, p.x, p.y); g.lx = p.x; g.ly = p.y; }
+  if (dist(g.lx, g.ly, p.x, p.y) >= 7) { smearSeg(g.lx, g.ly, p.x, p.y); g.lx = p.x; g.ly = p.y; }
   if (writer && !g.told && g.moved > 40) { g.told = true; toast(COARSE ? '두 손가락으로 조금만 펼치면 새길 수 있어요' : '가장자리를 끌어 조금만 펼치면 새길 수 있어요'); }
 }
 function endPtr(e, cancel) {
   const p = pts.get(e.pointerId); if (!p) return;
   pts.delete(e.pointerId);
   if (tap2) {                                                                                  // 두 손가락 톡톡 = 화면 가득 / 원래대로
-    const t = performance.now(), ok = !cancel && t - tap2.t0 < 380 && tap2.maxMove < 12;
-    if (ok && lastTwoTap && t - lastTwoTap.t < 520 && Math.hypot(tap2.x - lastTwoTap.x, tap2.y - lastTwoTap.y) < 90) {
+    const t = millis(), ok = !cancel && t - tap2.t0 < 380 && tap2.maxMove < 12;
+    if (ok && lastTwoTap && t - lastTwoTap.t < 520 && dist(lastTwoTap.x, lastTwoTap.y, tap2.x, tap2.y) < 90) {
       lastTwoTap = null; zoomTo(Z > 1.02 ? 1 : fillZoom(), tap2.x, tap2.y);
     } else lastTwoTap = ok ? { t, x: tap2.x, y: tap2.y } : null;
     tap2 = null;
@@ -1188,7 +1217,7 @@ function endPtr(e, cancel) {
   if (e.pointerId !== g.id) { if (!pts.size) gest = null; return; }
   gest = pts.size ? { type: 'none' } : null;
   clearTimeout(g.timer);
-  const dur = performance.now() - p.t0;
+  const dur = millis() - p.t0;
   if (g.type === 'wet' && g.hold) endWarm();
   if (cancel) return;
   if (g.type === 'press') {
@@ -1233,6 +1262,11 @@ function hintText() {
     if (!learned.crumble) return COARSE ? '빠르게 톡톡 여러 번 두드리면 부서져요' : '빠르게 여러 번 클릭하면 부서져요';
     return '';
   }
+  if (c.id === freshId) {                                       // 새 점토: 펼치기 → 쓰기 → 기다리기 (관람자마다 매번 안내)
+    if (!writable(c)) return COARSE ? '두 손가락으로 벌려 점토를 펼쳐보세요' : '가장자리를 잡고 끌어 점토를 펼쳐보세요';
+    if (!hasWriting(c)) return penSeen ? '펜슬로 글씨를 써보세요 · 세게 누를수록 깊게' : COARSE ? '손가락이나 펜슬로 글씨를 써보세요' : '드래그해서 글씨를 써보세요';
+    return '굳으면 문질러서 물을 묻혀 다시 볼 수 있어요';
+  }
   if (hasWriting(c)) return '굳으면 문질러서 물을 묻혀 다시 볼 수 있어요';
   if (!learned.print) return '만져보세요';
   if (!writable(c)) return learned.write ? '' : COARSE ? '두 손가락으로 벌려 조금 펼치면 새길 수 있어요' : '가장자리를 잡고 끌어 조금 펼치면 새길 수 있어요';
@@ -1250,7 +1284,7 @@ function stateOf(c) {
 function labelText() {                                          // 새 점토: 굳기까지 카운트다운 / 물레에서 꺼낸 점토: 언제 쓴 메모인지
   const c = cur; if (!c) return '';
   const m = moist(c);
-  if (c.id === freshId) return m > 0 ? `${Math.ceil(m * CONFIG.dryMs / 1000)}초 뒤에 굳어요` : '';
+  if (c.id === freshId) return m > 0 && hasWriting(c) && !pts.size ? `${Math.ceil(m * CONFIG.dryMs / 1000)}초 뒤에 굳어요` : '';
   const d = new Date(c.created), h = d.getHours();
   return `${d.getMonth() + 1}월 ${d.getDate()}일 ${h < 12 ? '오전' : '오후'} ${h % 12 || 12}:${pad2(d.getMinutes())}에 쓴 메모`;
 }
@@ -1277,6 +1311,7 @@ function frame(t) {
   if (view === 'home') { tickWheel(dt); return; }
   if (!cur) return;
   const c = cur;
+  if (c.id === freshId && moist(c) > 0 && (!hasWriting(c) || pts.size)) c.lt = now();   // 새 점토: 글씨를 쓰고 손을 뗀 뒤에야 굳기 시작한다
   const m = moist(c);
   if (m === 0 && ensureCrack(c)) { crackAnim = RM ? null : { t0: t }; learn('dry'); buzz(20); c.v++; saveSoon(); fxDirty = true; }
   if (m === 0 && !c.broken && t - seenTick > 1000) { seenTick = t; c.seen = now(); saveSoon(); }   // 들여다보는 동안은 깨지지 않는다
@@ -1321,11 +1356,8 @@ function drawFx(t, m, ox = 0, oy = 0) {
   if (c.broken && !shatter) drawBreak(fctx, c, cx, cy, R, Z, '#F6F2EC');
   if (chips.length) drawChips(fctx);
   if (particles.length) {
-    particles = particles.filter(q => (q.life -= 1 / 45) > 0);
-    for (const q of particles) {
-      q.vy += 400 / 60; q.x += q.vx / 60; q.y += q.vy / 60;
-      fctx.fillStyle = `rgba(${q.rgb},${q.life.toFixed(3)})`; fctx.beginPath(); fctx.arc(q.x, q.y, q.s, 0, Math.PI * 2); fctx.fill();
-    }
+    for (const q of particles) { q.checkDeath(); if (!q.death) q.display(fctx); }
+    for (let i = particles.length - 1; i >= 0; i--) if (particles[i].death === true) particles.splice(i, 1);   // 다 사라진 가루는 배열에서 빼기 (뒤에서부터)
   }
 }
 
