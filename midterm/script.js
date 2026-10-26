@@ -20,6 +20,7 @@
 /* ───────── 설정 ───────── */
 const CONFIG = {
   dryMs: 15000,   // 안 만지고 이 시간이 지나면 굳는다
+  breakMs: 864e5, // 굳은 뒤 이 시간 동안 한 번도 안 보면 깨진다 (하루). 주소 끝에 #demo 를 붙이면 1분
   photo: null,    // 예: 'assets/clay-surface.jpg'
 };
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
@@ -65,7 +66,7 @@ function tileNoise(P, seed) {
 const GRAIN = new Float32Array(N * N), MOT = new Float32Array(N * N);
 function buildNoise() {
   const a = tileNoise(4, 11), b = tileNoise(16, 23), c = tileNoise(96, 37), m = tileNoise(48, 51);
-  for (let i = 0; i < N * N; i++) { GRAIN[i] = a[i] * .07 + b[i] * .26 + c[i] * .8; MOT[i] = m[i]; }
+  for (let i = 0; i < N * N; i++) { GRAIN[i] = a[i] * .04 + b[i] * .18 + c[i] * .8; MOT[i] = m[i]; }
 }
 
 /* ───────── 점토 모양 ───────── */
@@ -182,7 +183,9 @@ function stampPore(H, m) {
   return [x0, y0, x1 - x0 + 1, y1 - y0 + 1];
 }
 // 새긴 획: 꼬챙이로 긁은 듯한 둥근 홈 + 양옆으로 밀려난 흙 턱. 굵기·깊이는 속도와 상관없이 일정
-function grooveSeg(H, a, b, kx, ky, W, D) {
+function grooveSeg(H, a, b, kx, ky, W0, D0) {
+  const f = ((a[2] == null ? 1 : a[2]) + (b[2] == null ? 1 : b[2])) / 2;   // 누른 힘: 세게 누를수록 굵고 깊게
+  const W = W0 * (.32 + .85 * f), D = D0 * (.3 + .85 * f);
   const Sx = (b[0] - a[0]) * kx, Sy = (b[1] - a[1]) * ky, len2 = Sx * Sx + Sy * Sy, len = Math.sqrt(len2) || 1e-3, ex = W * 2.1;
   const nx = -Sy / len, ny = Sx / len;
   const ref = (sampleH(H, a[0] + nx * W * 3.4 / kx, a[1] + ny * W * 3.4 / ky) + sampleH(H, a[0] - nx * W * 3.4 / kx, a[1] - ny * W * 3.4 / ky)) / 2;
@@ -276,7 +279,7 @@ function baseMarks(c) {
     const a = r() * 6.283, d = Math.sqrt(r()) * .7;
     out.push({ t: 'p', u: Math.cos(a) * d, v: Math.sin(a) * d, kx: K, ky: K, A: 14 + r() * 2, B: 18 + r() * 2.4, r: (r() - .5) * 1.4, D: .7 + r() * .6, g: 1, s: (r() * 1e9) | 0 });
   }
-  for (let i = 0; i < 26; i++) {
+  for (let i = 0; i < 12; i++) {
     const a = r() * 6.283, d = Math.sqrt(r()) * .88;
     out.push({ t: 'o', u: Math.cos(a) * d, v: Math.sin(a) * d, kx: K, ky: K, R: .6 + r(), D: .35 + r() * .45 });
   }
@@ -335,7 +338,7 @@ void main(){
   float blur = 0.07 + 0.35 * uH / (uR0 * max(uS.x, uS.y));
   float sh = (1.0 - smoothstep(1.0 - blur, 1.0 + blur * 1.6, rOf(p - off))) * 0.24;
   sh = max(sh, (1.0 - smoothstep(0.99, 1.0 + 5.0 * aaw, rOf(p - vec2(0.5, 1.2)))) * 0.3);
-  vec3 shc = vec3(0.31, 0.26, 0.2);
+  vec3 shc = vec3(0.36, 0.29, 0.22);
   if (a < 0.002) { gl_FragColor = vec4(shc * sh, sh) * uAlpha; return; }
   float h0 = uH * prof(r);
   vec2 g = vec2(uH * prof(rOf(p + vec2(0.75, 0.0))) - h0, uH * prof(rOf(p + vec2(0.0, 0.75))) - h0) / 0.75;
@@ -350,14 +353,17 @@ void main(){
   vec3 n = normalize(vec3(-g, 1.0));
   vec3 ld = normalize(vec3(-0.52, -0.62, 0.66));
   float diff = pow(clamp(dot(n, ld) * 0.5 + 0.5, 0.0, 1.0), 1.7);
-  vec3 alb = mix(vec3(0.905, 0.885, 0.85), vec3(0.705, 0.655, 0.585), uWet);
+  vec3 alb = mix(vec3(0.915, 0.88, 0.83), vec3(0.725, 0.665, 0.585), uWet);   // 마른 슬립 크림 ↔ 젖은 클레이
   alb *= 1.0 + (d.a - 0.5) * 0.07;
   if (uPhotoMix > 0.0) { vec3 ph = texture2D(uPhoto, fract(l * 0.5 + 0.5)).rgb; alb *= mix(1.0, dot(ph, vec3(0.3, 0.59, 0.11)) / 0.62, uPhotoMix); }
   alb = mix(alb, vec3(0.6, 0.555, 0.49), water * 0.8);              // 물 묻은 흙은 짙어진다
   alb = mix(alb, alb * vec3(1.07, 0.95, 0.85), uWarm * 0.5);
   float ao = clamp(1.0 + (d.b - 0.5) * 8.0 * 0.055 * uGain, 0.8, 1.04);
   vec3 col = alb * (0.36 + 0.82 * diff) * ao;
-  col += pow(max(dot(n, normalize(ld + vec3(0.0, 0.0, 1.0))), 0.0), 30.0) * (0.09 * uWet + 0.16 * water);
+  vec3 hv = normalize(ld + vec3(0.0, 0.0, 1.0)); float nh = max(dot(n, hv), 0.0);
+  float wetGloss = max(uWet, water);                                   // 젖으면 번들, 마르면 무광
+  col += (pow(nh, 9.0) * 0.07 + pow(nh, 55.0) * 0.22) * wetGloss;
+  col *= mix(1.03, 1.0, uWet);
   col = clamp(col, 0.0, 1.0);
   gl_FragColor = vec4(col * a + shc * sh * (1.0 - a), a + sh * (1.0 - a)) * uAlpha;
 }`;
@@ -485,27 +491,77 @@ function drawCracks(ctx, c, x0, y0, R, p, alpha, s = 1) {
 }
 
 /* ───────── 상태 ───────── */
+const DEMO = /demo/.test(location.hash);
+const BREAK_MS = DEMO ? 60000 : CONFIG.breakMs;
+const PEN = 'sonjaguk.pen.v1';
 let clays = [], learned = {}, cur = null, view = 'work';
-let W = 0, Hs = 0, maxH = 0, R0 = 90, cx = 0, cy = 0;
+let W = 0, Hs = 0, maxH = 0, R0 = 90;
+let baseCx = 0, baseCy = 0, cx = 0, cy = 0, Z = 1, zoomAnim = null;   // 점토 중심(화면), 확대 배율
 let workR = null, thumbR = null;
-const mapFull = new ClayMap(), mapBase = new ClayMap();   // 작업 화면용(홈에서는 썸네일 만들 때 빌려 쓴다)
+const mapFull = new ClayMap(), mapBase = new ClayMap();
 const NOWRITE = m => !isWriting(m);
-let dirtyGL = true, fxDirty = true, lastWet = -1, warm = 0, rubbing = false, lastHide = -1;
+let dirtyGL = true, fxDirty = true, lastWet = -1, warm = 0, rubbing = false, lastHide = -1, lastShrink = -1;
 let spawnT = 1, spawnStart = 0, spawnK = 1, crackAnim = null, particles = [];
-let inputMode = 'draw';   // 노트북: 'draw' 마우스로 그리기 / 'type' 키보드로 쓰기
+let penSeen = false;
 const glCv = $('#gl'), fx = $('#fx'), fctx = fx.getContext('2d');
-const hintEl = $('#hint'), labelEl = $('#label'), typer = $('#typer');
+const hintEl = $('#hint'), labelEl = $('#label');
 const countOf = (c, t) => c.marks.reduce((s, x) => s + (x.t === t ? 1 : 0), 0);
-const charsOf = c => c.marks.reduce((s, x) => s + (x.t === 'k' ? x.text.replace(/\s/g, '').length : 0), 0);
 const hasWriting = c => c.marks.some(isWriting);
-function writeSummary(c) {
-  const g = countOf(c, 'g'), k = charsOf(c), parts = [];
-  if (g) parts.push(`새김 ${g}획`); if (k) parts.push(`글자 ${k}자`);
-  return parts.join(' · ');
+const shrinkOf = m => 1 - .07 * (1 - m);                         // 마르면 7% 정도 줄어든다
+function writeSummary(c) { const g = countOf(c, 'g') + countOf(c, 'k'); return g ? `새김 ${g}획` : ''; }
+
+/* ───────── 오래 안 보면 깨진다 ───────── */
+const dryAt = c => c.lt + CONFIG.dryMs;
+const unseenFor = c => moist(c) > 0 ? 0 : Math.max(0, now() - Math.max(c.seen || 0, dryAt(c)));
+const decayOf = c => c.broken ? 1 : clamp(unseenFor(c) / BREAK_MS, 0, 1);
+function ensureBroken(c) {
+  if (c.broken || moist(c) > 0 || unseenFor(c) < BREAK_MS) return false;
+  ensureCrack(c);
+  c.broken = { seed: (c.seed * 3 + (c.dryN || 0) * 131) >>> 0 }; c.v++;
+  return true;
+}
+function genBreak(c) {
+  const key = c.broken.seed + '|' + c.sx.toFixed(3) + '|' + c.sy.toFixed(3);
+  if (c._bk && c._bkKey === key) return c._bk;
+  const r = rng(c.broken.seed), amps = ampsOf(c, new Float32Array(12)), lines = [], chips = [];
+  const n = 2 + ((r() * 2) | 0);
+  for (let k = 0; k < n; k++) {                                  // 가장자리에서 가장자리로 가로지르는 금
+    const a = r() * 6.283, b = a + Math.PI + (r() - .5) * 1.1;
+    const p0 = [Math.cos(a) * edgeAt(c, a, amps) * 1.04, Math.sin(a) * edgeAt(c, a, amps) * 1.04];
+    const p1 = [Math.cos(b) * edgeAt(c, b, amps) * 1.04, Math.sin(b) * edgeAt(c, b, amps) * 1.04];
+    const pts = [], steps = 22;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps, j = i && i < steps ? (r() - .5) * .07 : 0;
+      pts.push([lerp(p0[0], p1[0], t) + j + Math.sin(t * 3.14) * (r() - .5) * .12, lerp(p0[1], p1[1], t) + j]);
+    }
+    lines.push(pts);
+  }
+  for (let k = 0; k < 4; k++) {                                  // 떨어져 나간 귀퉁이
+    const a = r() * 6.283, e = edgeAt(c, a, amps), w = .12 + r() * .14, d = .1 + r() * .14;
+    chips.push([[Math.cos(a - w) * e * 1.05, Math.sin(a - w) * e * 1.05], [Math.cos(a) * (e - d), Math.sin(a) * (e - d)], [Math.cos(a + w) * e * 1.05, Math.sin(a + w) * e * 1.05]]);
+  }
+  def(c, '_bk', { lines, chips }); def(c, '_bkKey', key);
+  return c._bk;
+}
+function drawBreak(ctx, c, x0, y0, R, s, bg) {
+  const { lines, chips } = genBreak(c), P = ([u, v]) => [x0 + u * R * c.sx, y0 + v * R * c.sy];
+  ctx.save(); outline(ctx, c, x0, y0, R * 1.01); ctx.clip();
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  for (const pts of lines) {
+    const path = new Path2D(); pts.forEach((q, i) => { const [x, y] = P(q); i ? path.lineTo(x, y) : path.moveTo(x, y); });
+    ctx.strokeStyle = bg; ctx.lineWidth = 4.2 * s; ctx.stroke(path);                         // 조각 사이 틈
+    ctx.save(); ctx.translate(1.4 * s, 1.6 * s); ctx.strokeStyle = 'rgba(92,74,56,.32)'; ctx.lineWidth = 1.6 * s; ctx.stroke(path); ctx.restore();
+    ctx.save(); ctx.translate(-1.9 * s, -1.9 * s); ctx.strokeStyle = 'rgba(255,252,246,.8)'; ctx.lineWidth = .9 * s; ctx.stroke(path); ctx.restore();
+  }
+  for (const ch of chips) {
+    ctx.beginPath(); ch.forEach((q, i) => { const [x, y] = P(q); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.closePath();
+    ctx.fillStyle = bg; ctx.fill(); ctx.strokeStyle = 'rgba(92,74,56,.28)'; ctx.lineWidth = 1 * s; ctx.stroke();
+  }
+  ctx.restore();
 }
 
 /* ───────── 저장 ───────── */
-const ser = c => ({ id: c.id, no: c.no, created: c.created, lt: c.lt, sx: r4(c.sx), sy: r4(c.sy), seed: c.seed, marks: c.marks, dryN: c.dryN, crack: c.crack, example: !!c.example });
+const ser = c => ({ id: c.id, no: c.no, created: c.created, lt: c.lt, seen: c.seen, sx: r4(c.sx), sy: r4(c.sy), seed: c.seed, marks: c.marks, dryN: c.dryN, crack: c.crack, broken: c.broken || null, example: !!c.example });
 function save() { try { localStorage.setItem(STORE, JSON.stringify(clays.map(ser))); } catch (e) { /* 저장 공간 없음 */ } }
 let saveT = 0;
 const saveSoon = () => { clearTimeout(saveT); saveT = setTimeout(save, 500); };
@@ -513,11 +569,15 @@ function load() {
   try {
     const raw = localStorage.getItem(STORE); if (!raw) return null;
     const arr = JSON.parse(raw); if (!Array.isArray(arr)) return null;
-    return arr.filter(c => c && c.id && Array.isArray(c.marks) && c.sx && c.sy).map(c => ({ ...c, v: 1 }));
+    return arr.filter(c => c && c.id && Array.isArray(c.marks) && c.sx && c.sy).map(c => ({ ...c, seen: c.seen || c.lt, v: 1 }));
   } catch (e) { return null; }
 }
-function loadLearned() { try { learned = JSON.parse(localStorage.getItem(LEARN) || '{}') || {}; } catch (e) { learned = {}; } }
+function loadLearned() {
+  try { learned = JSON.parse(localStorage.getItem(LEARN) || '{}') || {}; } catch (e) { learned = {}; }
+  try { penSeen = localStorage.getItem(PEN) === '1'; } catch (e) { penSeen = false; }
+}
 function learn(k) { if (learned[k]) return; learned[k] = true; try { localStorage.setItem(LEARN, JSON.stringify(learned)); } catch (e) { /* 무시 */ } }
+function notePen() { if (penSeen) return; penSeen = true; try { localStorage.setItem(PEN, '1'); } catch (e) { /* 무시 */ } toast('펜슬로 새기고, 손가락으로 만져요'); }
 
 /* ───────── 점토 만들기 ───────── */
 function printMark(u, v, kx, ky, D, rot, g) {
@@ -525,13 +585,11 @@ function printMark(u, v, kx, ky, D, rot, g) {
 }
 function newClay() {
   const no = clays.reduce((m, c) => Math.max(m, c.no || 0), 0) + 1, t = now();
-  const c = { id: 'c' + t.toString(36) + rint().toString(36), no, created: t, lt: t, sx: 1, sy: 1, seed: rint(), marks: [], dryN: 0, crack: null, example: false, v: 1 };
+  const c = { id: 'c' + t.toString(36) + rint().toString(36), no, created: t, lt: t, seen: t, sx: 1, sy: 1, seed: rint(), marks: [], dryN: 0, crack: null, broken: null, example: false, v: 1 };
   const a = Math.random() * 6.283;  // 반죽에서 떼어낸 자리의 엄지 자국
   c.marks.push(printMark(Math.cos(a) * .5, Math.sin(a) * .5, R0, R0, 1.7, a + Math.PI / 2, 1));
   return c;
 }
-
-// 예시 점토에 새길 손글씨 (글자 칸 0~1 좌표로 그린 획)
 const GLYPHS = {
   '통': [[[.26, .07], [.74, .06]], [[.27, .07], [.27, .33], [.75, .34]], [[.28, .2], [.68, .2]], [[.5, .41], [.5, .53]], [[.13, .55], [.87, .54]], 'o.5,.79,.15'],
   '영': ['o.32,.3,.17', [[.72, .04], [.72, .6]], [[.54, .22], [.72, .22]], [[.54, .4], [.72, .4]], 'o.52,.8,.15'],
@@ -548,20 +606,26 @@ function glyphStrokes(ch, bx, by, size, r) {
   }
   return out;
 }
-function scribble(x0, x1, y, r) {   // 흘려 쓴 글씨처럼 보이는 줄
+function scribble(x0, x1, y, r) {
   const pts = []; for (let x = x0; x <= x1; x += 3) pts.push([x, y + Math.sin(x * .42 + r() * .4) * 3.2 + Math.sin(x * .13) * 1.5 + (r() - .5) * .8]);
   return pts;
 }
 function makeExamples() {
-  const day = 864e5, t = now();
-  const spec = [
-    { no: 1, seed: 1201, sx: 1.9, sy: 1.3, prints: 7, smears: 3, ago: 3.2 * day },
-    { no: 2, seed: 2402, sx: 1, sy: 1, prints: 11, smears: 2, ago: 1.6 * day },
-    { no: 3, seed: 3603, sx: 1.8, sy: 1.7, prints: 5, smears: 4, ago: .4 * day },
+  const hour = 36e5, day = 24 * hour, t = now();
+  const spec = [   // seenAgo: 마지막으로 들여다본 뒤 지난 시간
+    { no: 1, seed: 1201, sx: 1.9, sy: 1.3, prints: 7, smears: 3, ago: 3.2 * day, seenAgo: 2 * hour, write: 'list' },
+    { no: 2, seed: 2402, sx: 1, sy: 1, prints: 11, smears: 2, ago: 2.6 * day, seenAgo: 5 * hour },
+    { no: 3, seed: 3603, sx: 1.8, sy: 1.7, prints: 5, smears: 4, ago: 2.1 * day, seenAgo: 3 * hour, write: 'tongyeong' },
+    { no: 4, seed: 4804, sx: 1.5, sy: 1.25, prints: 4, smears: 2, ago: 6 * day, seenAgo: 5 * day, write: 'lines' },
+    { no: 5, seed: 6005, sx: 1.2, sy: 1.1, prints: 9, smears: 1, ago: 1.4 * day, seenAgo: 9 * hour },
+    { no: 6, seed: 7206, sx: 1.7, sy: 1.4, prints: 3, smears: 3, ago: 20 * hour, seenAgo: 1 * hour, write: 'lines' },
+    { no: 7, seed: 8407, sx: 1.05, sy: 1.3, prints: 6, smears: 2, ago: 9 * hour, seenAgo: 2 * hour },
+    { no: 8, seed: 9608, sx: 1.6, sy: 1.55, prints: 4, smears: 2, ago: 4 * hour, seenAgo: .5 * hour, write: 'lines' },
   ];
   return spec.map(s => {
     const r = rng(s.seed), area = s.sx * s.sy, gA = Math.pow(area, .35), kx = R0 * s.sx, ky = R0 * s.sy;
-    const c = { id: 'ex' + s.no, no: s.no, created: t - s.ago, lt: t - s.ago + 6e4, sx: s.sx, sy: s.sy, seed: s.seed, marks: [], dryN: 0, crack: null, example: true, v: 1 };
+    const seen = DEMO ? (s.no === 4 ? t - 2 * BREAK_MS : t) : t - s.seenAgo;   // 시연 모드에서는 4번만 깨진 채로
+    const c = { id: 'ex' + s.no, no: s.no, created: t - s.ago, lt: t - s.ago + 6e4, seen, sx: s.sx, sy: s.sy, seed: s.seed, marks: [], dryN: 0, crack: null, broken: null, example: true, v: 1 };
     for (let i = 0; i < s.prints; i++) {
       const a = r() * 6.283, d = Math.sqrt(r()) * .74, early = r() < .5, g = early ? 1 : gA;
       c.marks.push({ t: 'p', u: r4(Math.cos(a) * d), v: r4(Math.sin(a) * d), kx: R0 * (early ? 1 : s.sx), ky: R0 * (early ? 1 : s.sy), A: 15 + r() * 2, B: 19 + r() * 2.4, r: (r() - .5) * 1.2 - .2, D: (1.2 + r() * .8) * g, g, s: (r() * 1e9) | 0 });
@@ -571,171 +635,132 @@ function makeExamples() {
       c.marks.push({ t: 's', u0: u, v0: v, u1: u + Math.cos(dir) * len, v1: v + Math.sin(dir) * len, kx, ky, W: 9.5, D: 1.2 * gA });
     }
     let strokes = [];
-    if (s.no === 1) {            // 장보기 체크리스트
+    if (s.write === 'list') {
       [-30, 0, 30].forEach((y, i) => {
         const bx = -R0 * s.sx * .52;
         strokes.push([[bx, y - 6], [bx + 12, y - 6.5], [bx + 12.5, y + 6], [bx - .5, y + 6.5], [bx, y - 6]]);
         if (i < 2) strokes.push([[bx + 2, y], [bx + 6, y + 5], [bx + 15, y - 9]]);
         strokes.push(scribble(bx + 24, bx + 24 + 70 + r() * 50, y, r));
       });
-    } else if (s.no === 3) {     // '통영' + 물결
+    } else if (s.write === 'tongyeong') {
       strokes = [...glyphStrokes('통', -25, -18, 46, r), ...glyphStrokes('영', 25, -18, 46, r)];
       const w = []; for (let x = -62; x <= 62; x += 3) w.push([x, 30 + Math.sin(x * .16) * 5]);
       strokes.push(w);
+    } else if (s.write === 'lines') {
+      const n = 2 + ((r() * 2) | 0), x0 = -R0 * s.sx * .5;
+      for (let i = 0; i < n; i++) strokes.push(scribble(x0, x0 + R0 * s.sx * (.6 + r() * .35), (i - (n - 1) / 2) * 26, r));
     }
-    for (const st of strokes) c.marks.push({ t: 'g', pts: st.map(([x, y]) => [r4(x / kx), r4(y / ky)]), kx, ky, W: 2.5, D: 1.9 * gA });
-    ensureCrack(c);
+    for (const st of strokes) c.marks.push({ t: 'g', pts: st.map(([x, y]) => [r4(x / kx), r4(y / ky), r4(.75 + r() * .4)]), kx, ky, W: 2.5, D: 1.9 * gA });
+    ensureCrack(c); ensureBroken(c);
     return c;
   });
 }
 
-/* ───────── 화면 크기 ───────── */
+/* ───────── 화면 크기 · 확대 ───────── */
 const sxMax = () => Math.max(1, Math.min(2.6, (W - 32) / (2 * R0 * 1.08)));
 const syMax = () => Math.max(1, Math.min(3, (maxH * .62) / (2 * R0 * 1.08)));
 let waterCv = document.createElement('canvas'), wctx = waterCv.getContext('2d'), waterUntil = 0;
-const WS = 1 / 3;   // 물 자국 지도는 화면의 1/3 해상도
+const WS = 1 / 3;
 function layout() {
   W = innerWidth; Hs = innerHeight; maxH = Math.max(maxH, Hs);
   R0 = clamp(Math.min(W, maxH) * .22, 72, 112);
-  cx = W / 2; cy = Hs * .46;
+  baseCx = W / 2; baseCy = Hs * .46;
+  if (Z === 1) { cx = baseCx; cy = baseCy; }
   workR.size(W, Hs);
   fx.width = Math.round(W * DPR); fx.height = Math.round(Hs * DPR);
   waterCv.width = Math.max(1, Math.round(W * WS)); waterCv.height = Math.max(1, Math.round(Hs * WS)); waterUntil = 0;
   if (cur) setSpread(cur, cur.sx, cur.sy);
-  dirtyGL = true; fxDirty = true;
+  layoutWheel();
+  dirtyGL = true; fxDirty = true; wheelDirty = true;
 }
 function setSpread(c, sx, sy) {
   const was = writable(c);
   sx = clamp(sx, 1, Math.max(1, sxMax())); sy = clamp(sy, 1, Math.max(1, syMax()));
-  if (hasWriting(c) && sx * sy < WRITE_AREA) return;               // 새긴 뒤에는 다시 덩어리로 못 오므린다
+  if (hasWriting(c) && sx * sy < WRITE_AREA) return;
   c.sx = sx; c.sy = sy;
   if (!was && writable(c)) { buzz(12); learn('spread'); if (view === 'work') toast('이제 새길 수 있어요'); }
   c.v++; dirtyGL = true;
 }
+const easeOut = t => 1 - Math.pow(1 - t, 3);
+function zoomTo(z1, px, py) {                                   // 가까이 들여다보기
+  const tx1 = z1 === 1 ? baseCx : px - (px - cx) * (z1 / Z), ty1 = z1 === 1 ? baseCy : py - (py - cy) * (z1 / Z);
+  zoomAnim = { t0: performance.now(), z0: Z, z1, x0: cx, y0: cy, x1: tx1, y1: ty1 };
+  if (z1 > 1) learn('zoom');
+}
+function clampPan() {
+  const R = R0 * Z, mx = R * cur.sx, my = R * cur.sy;
+  cx = clamp(cx, W / 2 - mx, W / 2 + mx); cy = clamp(cy, Hs / 2 - my, Hs / 2 + my);
+}
 
 /* ───────── 작업 화면: 만지기 ───────── */
-function toLocal(x, y) { const k = R0 * spawnK; return [(x - cx) / (k * cur.sx), (y - cy) / (k * cur.sy)]; }
+const scaleNow = () => R0 * spawnK * shrinkOf(moist(cur)) * Z;
+function toLocal(x, y) { const k = scaleNow(); return [(x - cx) / (k * cur.sx), (y - cy) / (k * cur.sy)]; }
 function rAt(x, y) { const [u, v] = toLocal(x, y); return rLocal(cur, u, v, ampsOf(cur, tmpAmps)); }
-const depthFactor = c => .45 + .55 * smooth(0, .35, moist(c));   // 꾸덕해질수록 얕게 찍힌다
-
+const depthFactor = c => .45 + .55 * smooth(0, .35, moist(c));
 function trimMarks(c) {
   while (c.marks.length > MAX_MARKS) { const i = c.marks.findIndex(m => !isWriting(m)); if (i < 0) break; c.marks.splice(i, 1); }
 }
 const upFull = rect => { if (rect) { workR.upload(mapFull.rgba, rect, 0); dirtyGL = true; } };
 const upBase = rect => { if (rect) { workR.upload(mapBase.rgba, rect, 2); dirtyGL = true; } };
 function stampLive(m) { upFull(mapFull.add(m)); if (!isWriting(m)) upBase(mapBase.add(m)); }
-function addMark(m) {
-  const c = cur; c.marks.push(m); trimMarks(c);
-  stampLive(m);
-  c.lt = now(); c.v++; saveSoon();
-}
+function rebuildMaps() { workR.upload(mapFull.rgba, mapFull.build(cur), 0); workR.upload(mapBase.rgba, mapBase.build(cur, NOWRITE), 2); }
+function addMark(m) { const c = cur; c.marks.push(m); trimMarks(c); stampLive(m); c.lt = now(); c.v++; saveSoon(); }
+const physK = c => R0 * shrinkOf(moist(c));                    // 자국 크기는 화면 확대와 상관없는 실제 크기
 function pressAt(x, y, D) {
   const c = cur, [u, v] = toLocal(x, y), g = Math.pow(areaOf(c), .35);
-  const m = printMark(u, v, R0 * c.sx, R0 * c.sy, D * g * depthFactor(c), (Math.random() - .5) - .2, g);
+  const m = printMark(u, v, physK(c) * c.sx, physK(c) * c.sy, D * g * depthFactor(c), (Math.random() - .5) - .2, g);
   addMark(m); learn('print');
   return m;
 }
 function deepen(m, D) { m.D = r4(Math.max(m.D, D * m.g * depthFactor(cur))); stampLive(m); saveSoon(); }
+function pokeAt(x, y, f) {                                      // 펜슬로 콕: 작은 구멍
+  const c = cur, [u, v] = toLocal(x, y);
+  addMark({ t: 'o', u: r4(u), v: r4(v), kx: r4(physK(c) * c.sx), ky: r4(physK(c) * c.sy), R: r4(1.4 + 1.8 * f), D: r4((1.1 + 1.8 * f) * depthFactor(c)) });
+}
 function smearSeg(x0, y0, x1, y1) {
   const c = cur, [u0, v0] = toLocal(x0, y0), [u1, v1] = toLocal(x1, y1), amps = ampsOf(c, tmpAmps);
   if (rLocal(c, u0, v0, amps) > 1 || rLocal(c, u1, v1, amps) > 1) return;
   const g = Math.pow(areaOf(c), .35);
-  addMark({ t: 's', u0: r4(u0), v0: r4(v0), u1: r4(u1), v1: r4(v1), kx: r4(R0 * c.sx), ky: r4(R0 * c.sy), W: r4(9 + Math.random() * 2), D: r4(1.15 * g * depthFactor(c)) });
+  addMark({ t: 's', u0: r4(u0), v0: r4(v0), u1: r4(u1), v1: r4(v1), kx: r4(physK(c) * c.sx), ky: r4(physK(c) * c.sy), W: r4(9 + Math.random() * 2), D: r4(1.15 * g * depthFactor(c)) });
 }
 
-// 그려서 새기기: 손떨림을 걸러낸 점을 따라 홈을 판다
-function strokeBegin(x, y) {
+// 새기기: 손떨림을 걸러낸 점을 따라 홈을 판다. 점마다 누른 힘(f)을 함께 기록한다
+function strokeBegin(x, y, f) {
   const c = cur, g = Math.pow(areaOf(c), .35), [u, v] = toLocal(x, y);
-  const m = { t: 'g', pts: [[r4(u), r4(v)]], kx: r4(R0 * c.sx), ky: r4(R0 * c.sy), W: 2.5, D: r4(1.9 * g * depthFactor(c)) };
+  const m = { t: 'g', pts: [[r4(u), r4(v), r4(f)]], kx: r4(physK(c) * c.sx), ky: r4(physK(c) * c.sy), W: 2.5, D: r4(1.9 * g * depthFactor(c)) };
   c.marks.push(m); c.lt = now(); c.v++;
   upFull(mapFull.encode(grooveSeg(mapFull.H, m.pts[0], m.pts[0], m.kx, m.ky, m.W, m.D)));
-  return { m, sx: x, sy: y, ex: x, ey: y };
+  return { m, sx: x, sy: y, ex: x, ey: y, f };
 }
 function strokePoint(st, x, y) {
   const [u, v] = toLocal(x, y);
-  if (rLocal(cur, u, v, ampsOf(cur, tmpAmps)) > .97) return false;    // 점토 밖으로 나가면 획을 끊는다
-  const P = st.m.pts, a = P[P.length - 1], b = [r4(u), r4(v)];
+  if (rLocal(cur, u, v, ampsOf(cur, tmpAmps)) > .97) return false;
+  const P = st.m.pts, a = P[P.length - 1], b = [r4(u), r4(v), r4(st.f)];
   P.push(b); st.ex = x; st.ey = y;
   upFull(mapFull.encode(grooveSeg(mapFull.H, a, b, st.m.kx, st.m.ky, st.m.W, st.m.D)));
   cur.lt = now(); cur.v++;
   return true;
 }
-function strokeMove(st, x, y, final) {
-  const k = final ? 1 : .3;                                 // 보정: 손가락 위치를 부드럽게 따라간다
+function strokeMove(st, x, y, f, final) {
+  st.f = lerp(st.f, f, .35);
+  const k = final ? 1 : .3;
   st.sx += (x - st.sx) * k; st.sy += (y - st.sy) * k;
-  if (Math.hypot(st.sx - st.ex, st.sy - st.ey) >= (final ? .5 : 3)) {
-    if (!strokePoint(st, st.sx, st.sy)) return null;
-  }
+  if (Math.hypot(st.sx - st.ex, st.sy - st.ey) >= (final ? .5 : 3)) { if (!strokePoint(st, st.sx, st.sy)) return null; }
   return st;
 }
-
-// 키보드로 쓰기 (노트북): 클릭한 자리에 글자가 도장처럼 찍힌다
-let typing = null;
-function startTyping(x, y) {
-  const c = cur, [u, v] = toLocal(x, y), g = Math.pow(areaOf(c), .35);
-  const m = { t: 'k', text: '', u: r4(u), v: r4(v), kx: r4(R0 * c.sx), ky: r4(R0 * c.sy), fs: 22, D: r4(1.8 * g * depthFactor(c)) };
-  c.marks.push(m);
-  typing = { m, snap: mapFull.H.slice(), rect: null };
-  typer.value = ''; placeTyper();
-  try { typer.focus({ preventScroll: true }); } catch (_) { typer.focus(); }
-  learn('write'); fxDirty = true;
-}
-function restoreRect(H, snap, [x, y, w, h]) { for (let j = y; j < y + h; j++) H.set(snap.subarray(j * N + x, j * N + x + w), j * N + x); }
-function typeUpdate() {
-  const t = typing; if (!t || !cur) return;
-  t.m.text = typer.value.slice(0, 120);
-  if (t.rect) restoreRect(mapFull.H, t.snap, t.rect);
-  const r = stampText(mapFull.H, t.m), all = r ? unite(t.rect, r) : t.rect;
-  t.rect = r ? unite(t.rect, r) : t.rect;
-  if (all) upFull(mapFull.encode(all));
-  cur.lt = now(); cur.v++; fxDirty = true; placeTyper(); saveSoon();
-}
-function endTyping() {
-  const t = typing; if (!t) return;
-  typing = null; typer.blur();
-  if (!t.m.text.trim()) {
-    const i = cur.marks.indexOf(t.m); if (i >= 0) cur.marks.splice(i, 1);
-    if (t.rect) { restoreRect(mapFull.H, t.snap, t.rect); upFull(mapFull.encode(t.rect)); }
-  }
-  fxDirty = true; saveSoon();
-}
-function caretPos() {
-  const t = typing; if (!t) return null;
-  const lay = textLayout(t.m), kx = (R0 * cur.sx) / t.m.kx, ky = (R0 * cur.sy) / t.m.ky;
-  const x0 = cx + t.m.u * R0 * cur.sx, y0 = cy + t.m.v * R0 * cur.sy;
-  const last = lay.lines.length - 1;
-  return { x: x0 + lay.widths[last] * kx + 2, y: y0 + (lay.top + last * lay.lh) * ky, h: t.m.fs * ky };
-}
-function placeTyper() { const p = caretPos(); if (p) { typer.style.left = p.x + 'px'; typer.style.top = p.y + 'px'; } }
-typer.addEventListener('input', typeUpdate);
-typer.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); endTyping(); } });
-typer.addEventListener('blur', () => { if (typing) endTyping(); });
-
-// 물 묻히기: 문지른 자리만 젖어서 숨은 글이 드러나고, 몇 초 뒤 다시 마른다
-function paintWater(ctx, x, y, r) {
-  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-  g.addColorStop(0, 'rgba(0,0,0,.42)'); g.addColorStop(.6, 'rgba(0,0,0,.25)'); g.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-}
-function wetStroke(x0, y0, x1, y1) {
-  const d = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.ceil(d / 6));
-  for (let i = 1; i <= n; i++) paintWater(wctx, lerp(x0, x1, i / n) * WS, lerp(y0, y1, i / n) * WS, 30 * WS);
-  waterUntil = performance.now() + 7000; dirtyGL = true;
-  if (!learned.water && moist(cur) === 0) { learn('water'); }
-}
-function dryWater(ctx, w, h, a) {
-  ctx.globalCompositeOperation = 'destination-out'; ctx.fillStyle = `rgba(0,0,0,${a})`; ctx.fillRect(0, 0, w, h); ctx.globalCompositeOperation = 'source-over';
+// 누른 힘: 펜슬은 실제 압력, 손가락·마우스는 천천히 누를수록 깊게
+function forceOf(e, p) {
+  if (e.pointerType === 'pen') return clamp(.25 + .95 * Math.pow(clamp(e.pressure || .5, .02, 1), .8), .25, 1.2);
+  const dt = Math.max(1, e.timeStamp - (p.lt || e.timeStamp - 16)), v = Math.hypot(e.clientX - (p.lx || e.clientX), e.clientY - (p.ly || e.clientY)) / dt;
+  return clamp(1.15 - v * .45, .45, 1.1);
 }
 
+// 문질러 메우기
 function startErase(g) {
   const c = cur;
-  if (c.marks.length > g.m0) {                                     // 문지르기 전에 생긴 획·자국은 없던 일로
-    c.marks.splice(g.m0);
-    workR.upload(mapFull.rgba, mapFull.build(c), 0);
-    workR.upload(mapBase.rgba, mapBase.build(c, NOWRITE), 2);
-  }
+  if (c.marks.length > g.m0) { c.marks.splice(g.m0); rebuildMaps(); }
   g.stroke = null; g.ended = true;
-  const m = { t: 'e', pts: g.trail.map(([x, y]) => toLocal(x, y).map(r4)), kx: r4(R0 * c.sx), ky: r4(R0 * c.sy), W: 15 };
+  const m = { t: 'e', pts: g.trail.map(([x, y]) => toLocal(x, y).map(r4)), kx: r4(physK(c) * c.sx), ky: r4(physK(c) * c.sy), W: 15 };
   c.marks.push(m); stampLive(m);
   g.erase = m; g.ex = g.trail[g.trail.length - 1][0]; g.ey = g.trail[g.trail.length - 1][1];
   c.lt = now(); c.v++; buzz(8);
@@ -745,17 +770,32 @@ function eraseTo(g, x, y) {
   const m = g.erase, P = m.pts, a = P[P.length - 1], b = toLocal(x, y).map(r4);
   P.push(b); g.ex = x; g.ey = y;
   upFull(mapFull.erase(a, b, m)); upBase(mapBase.erase(a, b, m));
-  if (Math.random() < .2) dust(x, y, 1, '170,158,140');
+  if (Math.random() < .2) dust(x, y, 1, '178,164,146');
   cur.lt = now(); cur.v++;
 }
 function finishErase(g) {
   const c = cur, m = g.erase, rx = R0 * c.sx, ry = R0 * c.sy;
-  // 완전히 메워진 획은 목록에서도 뺀다
   const covered = ([u, v]) => m.pts.some(([eu, ev]) => Math.hypot((u - eu) * rx, (v - ev) * ry) < m.W * .85);
   c.marks = c.marks.filter(k => !(k.t === 'g' && k.pts.every(covered)));
   if (!learned.erase) toast('문질러서 메웠어요');
   learn('erase'); saveSoon();
 }
+
+// 물 묻히기
+function paintWater(ctx, x, y, r) {
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, 'rgba(0,0,0,.42)'); g.addColorStop(.6, 'rgba(0,0,0,.25)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+}
+function wetStroke(x0, y0, x1, y1) {
+  const d = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.ceil(d / 6));
+  for (let i = 1; i <= n; i++) paintWater(wctx, lerp(x0, x1, i / n) * WS, lerp(y0, y1, i / n) * WS, 30 * Z * WS);
+  waterUntil = performance.now() + 7000; dirtyGL = true;
+  cur.seen = now();
+  if (moist(cur) === 0 && hasWriting(cur)) learn('water');
+  return d;
+}
+function dryWater(ctx, w, h, a) { ctx.globalCompositeOperation = 'destination-out'; ctx.fillStyle = `rgba(0,0,0,${a})`; ctx.fillRect(0, 0, w, h); ctx.globalCompositeOperation = 'source-over'; }
 function dust(x, y, n, rgb) {
   for (let i = 0; i < n; i++) particles.push({ x, y, vx: (Math.random() - .5) * 130, vy: -Math.random() * 90 - 10, life: 1, s: .8 + Math.random() * 1.6, rgb });
   fxDirty = true;
@@ -766,112 +806,132 @@ function warmBy(gain) {
   warm = Math.min(1, warm + gain * 5); rubbing = true; dirtyGL = true;
   if (m0 < .35 && m1 >= .35) { toast('다시 말랑해졌어요'); learn('rub'); buzz(15); }
 }
-function endWarm() {
-  rubbing = false;
-  if (moist(cur) > .25 && cur.crack) { cur.crack = null; cur.v++; }
-  saveSoon();
+function endWarm() { rubbing = false; if (moist(cur) > .25 && cur.crack) { cur.crack = null; cur.v++; } cur.seen = now(); saveSoon(); }
+// 깨진 점토: 물에 불려 다시 반죽 → 새긴 것은 흙으로 돌아간다
+function soak(d) {
+  cur.soak = (cur.soak || 0) + d / 1800;
+  if (cur.soak < 1) { if (Math.random() < .3) dust(cx + (Math.random() - .5) * 60, cy + (Math.random() - .5) * 40, 1, '200,188,170'); return; }
+  const c = cur;
+  c.marks = []; c.broken = null; c.crack = null; c.soak = 0; c.sx = 1; c.sy = 1; c.lt = now(); c.seen = now(); c.dryN = (c.dryN || 0) + 1; c.seed = rint(); c.v++;
+  def(c, '_shape', null);
+  rebuildMaps(); spawnT = RM ? 1 : 0; spawnStart = performance.now(); gest = null;
+  wctx.clearRect(0, 0, waterCv.width, waterCv.height); waterUntil = 0;
+  toast('물에 불려 다시 반죽했어요 · 새긴 것은 흙으로 돌아갔어요'); buzz(30); learn('reclaim'); save();
 }
 
 /* 제스처
-   폰   — 한 손가락: 톡/꾹 = 지문, 펼친 점토 위에서 긋기 = 새기기, 덩어리 위에서 긋기 = 엄지 자국
-          두 손가락: 벌려서 펼치기
-          굳은 점토: 한 손가락으로 문지르기 = 물 묻혀 글 보기, 여러 손가락으로 감싸기 = 데워서 말랑하게
-   노트북 — 클릭 = 지문, 가장자리 끌기 = 늘리기, 안쪽 드래그 = 새기기(또는 클릭 후 타이핑)
-          굳은 점토: 문지르기 = 물 묻혀 글 보기, 꾹 누르고 있기 = 데워서 말랑하게 */
+   손가락(손) — 톡 = 지문(오래 누를수록 깊게), 끌기 = 엄지 자국, 두 손가락 벌리기 = 펼치기, 두 손가락 톡 = 가까이 보기
+   펜슬(꼬챙이) — 긋기 = 새기기(누르는 힘만큼 깊고 굵게), 콕 = 작은 구멍
+   펜슬이 없으면 손가락·마우스로 그어 새긴다. 왔다 갔다 문지르면 메워진다.
+   굳은 점토 — 문지르기 = 물 묻혀 글 보기, 여러 손가락으로 감싸거나 꾹 누르기 = 데우기
+   깨진 점토 — 계속 문질러 물에 불리면 다시 반죽된다 */
 const stage = $('#stage'), pts = new Map();
 let gest = null;
 stage.addEventListener('contextmenu', e => e.preventDefault());
 stage.addEventListener('pointerdown', e => {
   if (view !== 'work' || !cur) return;
-  if (typing) { e.preventDefault(); endTyping(); }
   try { stage.setPointerCapture(e.pointerId); } catch (_) { /* 무시 */ }
-  const p = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t0: performance.now(), touch: e.pointerType === 'touch' };
+  const kind = e.pointerType;
+  if (kind === 'pen') notePen();
+  const p = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, t0: performance.now(), kind, lx: e.clientX, ly: e.clientY, lt: e.timeStamp };
   pts.set(e.pointerId, p);
   const dry = moist(cur) === 0;
   if (pts.size === 1) {
     const r = rAt(p.x, p.y);
-    if (!p.touch && r > .88 && r < 1.2 && !dry) { gest = { type: 'edge', id: e.pointerId, sx0: cur.sx, sy0: cur.sy, moved: 0, inside: r <= 1 }; return; }
+    if (kind === 'mouse' && r > .88 && r < 1.2 && !dry && Z === 1) { gest = { type: 'edge', id: e.pointerId, sx0: cur.sx, sy0: cur.sy, moved: 0, inside: r <= 1 }; return; }
     if (r > 1) { gest = { type: 'none', id: e.pointerId }; return; }
+    if (cur.broken) { gest = { type: 'soak', id: e.pointerId, moved: 0, lx: p.x, ly: p.y }; return; }
     if (dry) {
       gest = { type: 'wet', id: e.pointerId, moved: 0, lx: p.x, ly: p.y, hold: false };
-      gest.timer = setTimeout(() => { if (gest && gest.type === 'wet' && gest.moved < 6) gest.hold = true; }, 450);
+      if (kind !== 'pen') gest.timer = setTimeout(() => { if (gest && gest.type === 'wet' && gest.moved < 6) gest.hold = true; }, 450);
       return;
     }
-    gest = { type: 'press', id: e.pointerId, moved: 0, lx: p.x, ly: p.y, mark: null,      // 지문은 손을 뗄 때 찍힌다(움직이면 새기기)
+    gest = { type: 'press', id: e.pointerId, kind, moved: 0, lx: p.x, ly: p.y, mark: null, f0: kind === 'pen' ? forceOf(e, p) : 1,
       ax: p.x, ay: p.y, revs: [], trail: [[p.x, p.y]], m0: cur.marks.length };
     return;
   }
-  // 두 손가락 이상
+  if ([...pts.values()].some(q => q.kind === 'pen')) return;   // 펜슬을 쥔 손이 화면에 닿아도 무시
   if (gest && gest.timer) clearTimeout(gest.timer);
   if (gest && gest.type === 'wet' && gest.hold) endWarm();
   const list = [...pts.values()], anyOn = list.some(q => rAt(q.x, q.y) <= 1.05);
-  if (!anyOn) { gest = { type: 'none' }; return; }
-  if (dry) { gest = { type: 'warm' }; return; }                 // 굳은 점토: 여러 손가락으로 감싸 데우기
+  if (!anyOn && Z === 1) { gest = { type: 'none' }; return; }
+  if (dry && !cur.broken) { gest = { type: 'warm' }; return; }
+  if (cur.broken) { gest = { type: 'none' }; return; }
   if (pts.size === 2) {
     const ids = [...pts.keys()], a = pts.get(ids[0]), b = pts.get(ids[1]);
-    gest = { type: 'pinch', ids, ux0: Math.abs(b.x - a.x), uy0: Math.abs(b.y - a.y), d0: Math.hypot(b.x - a.x, b.y - a.y), sx0: cur.sx, sy0: cur.sy };
+    gest = { type: 'two', ids, t0: performance.now(), maxMove: 0, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, m0x: (a.x + b.x) / 2, m0y: (a.y + b.y) / 2,
+      ux0: Math.abs(b.x - a.x), uy0: Math.abs(b.y - a.y), d0: Math.hypot(b.x - a.x, b.y - a.y), sx0: cur.sx, sy0: cur.sy };
   }
 });
 stage.addEventListener('pointermove', e => {
   const p = pts.get(e.pointerId);
   if (!p) { hoverCursor(e); return; }
+  const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+  for (const ev of (evs.length ? evs : [e])) moveOne(ev, p);
+});
+function moveOne(e, p) {
+  const f = gest && gest.type === 'press' ? forceOf(e, p) : 1;
   p.x = e.clientX; p.y = e.clientY;
-  if (!gest) return;
-  if (gest.type === 'pinch') {                             // 두 손가락으로 벌리면 그 방향으로 펴진다
+  if (!gest) { p.lx = p.x; p.ly = p.y; p.lt = e.timeStamp; return; }
+  if (gest.type === 'two') {
     const a = pts.get(gest.ids[0]), b = pts.get(gest.ids[1]); if (!a || !b) return;
-    const k = 2 * R0, iso = .45 * (Math.hypot(b.x - a.x, b.y - a.y) - gest.d0) / k;
-    setSpread(cur, gest.sx0 + (Math.abs(b.x - a.x) - gest.ux0) / k + iso, gest.sy0 + (Math.abs(b.y - a.y) - gest.uy0) / k + iso);
-    cur.lt = now();
+    for (const q of [a, b]) gest.maxMove = Math.max(gest.maxMove, Math.hypot(q.x - q.x0, q.y - q.y0));
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    if (Z > 1) { cx += mx - gest.mx; cy += my - gest.my; clampPan(); dirtyGL = true; }       // 확대 중: 보는 자리 옮기기
+    else if (gest.maxMove > 8) {                                                             // 펼치기
+      const k = 2 * R0, iso = .45 * (Math.hypot(b.x - a.x, b.y - a.y) - gest.d0) / k;
+      setSpread(cur, gest.sx0 + (Math.abs(b.x - a.x) - gest.ux0) / k + iso, gest.sy0 + (Math.abs(b.y - a.y) - gest.uy0) / k + iso);
+      cur.lt = now();
+    }
+    gest.mx = mx; gest.my = my;
     return;
   }
   if (e.pointerId !== gest.id) return;
   gest.moved = Math.max(gest.moved, Math.hypot(p.x - p.x0, p.y - p.y0));
-  if (gest.type === 'edge') {                              // 마우스: 가장자리를 잡고 바깥으로 끌면 늘어난다
+  if (gest.type === 'edge') {
     if (gest.moved < 4) return;
     const ox = p.x0 - cx, oy = p.y0 - cy, ol = Math.hypot(ox, oy) || 1, dx = ox / ol, dy = oy / ol;
     const amt = (p.x - p.x0) * dx + (p.y - p.y0) * dy, iso = .2 * amt / R0;
     setSpread(cur, gest.sx0 + amt * Math.abs(dx) / R0 + iso, gest.sy0 + amt * Math.abs(dy) / R0 + iso);
     cur.lt = now(); gest.stretched = true;
+  } else if (gest.type === 'press') {
+    if (gest.moved >= 6) pressMove(e, p, f);
+  } else if (gest.type === 'wet' && !gest.hold) {
+    if (Math.hypot(p.x - gest.lx, p.y - gest.ly) >= 2) { clearTimeout(gest.timer); wetStroke(gest.lx, gest.ly, p.x, p.y); gest.lx = p.x; gest.ly = p.y; }
+  } else if (gest.type === 'soak') {
+    if (Math.hypot(p.x - gest.lx, p.y - gest.ly) >= 2) { const d = wetStroke(gest.lx, gest.ly, p.x, p.y); gest.lx = p.x; gest.ly = p.y; soak(d); }
+  }
+  p.lx = p.x; p.ly = p.y; p.lt = e.timeStamp;
+}
+function pressMove(e, p, f) {
+  const g = gest, tnow = performance.now(), sd = Math.hypot(p.x - g.ax, p.y - g.ay);
+  if (sd >= 6) {
+    const dx = (p.x - g.ax) / sd, dy = (p.y - g.ay) / sd;
+    if (g.pdx !== undefined && dx * g.pdx + dy * g.pdy < -.3) g.revs.push(tnow);
+    g.pdx = dx; g.pdy = dy; g.ax = p.x; g.ay = p.y; g.trail.push([p.x, p.y]);
+  }
+  g.revs = g.revs.filter(t => tnow - t < 650);
+  if (!g.erase && g.revs.length >= 3) startErase(g);
+  if (g.erase) { eraseTo(g, p.x, p.y); return; }
+  const writer = g.kind === 'pen' || g.kind === 'mouse' || !penSeen;   // 펜슬을 쓰기 시작하면 손가락은 '손'이 된다
+  if (writer && writable(cur)) {
+    if (!g.stroke && !g.ended) { g.stroke = strokeBegin(p.x0, p.y0, g.kind === 'pen' ? f : 1); learn('write'); }
+    if (g.stroke) { g.stroke = strokeMove(g.stroke, p.x, p.y, f, false); if (!g.stroke) g.ended = true; }
     return;
   }
-  if (gest.type === 'press') {
-    if (gest.moved < 6) return;
-    clearTimeout(gest.timer);
-    // 왔다 갔다 문지르면 → 메우기(지우기)로 바뀐다
-    const sd = Math.hypot(p.x - gest.ax, p.y - gest.ay), tnow = performance.now();
-    if (sd >= 6) {
-      const dx = (p.x - gest.ax) / sd, dy = (p.y - gest.ay) / sd;
-      if (gest.pdx !== undefined && dx * gest.pdx + dy * gest.pdy < -.3) gest.revs.push(tnow);
-      gest.pdx = dx; gest.pdy = dy; gest.ax = p.x; gest.ay = p.y; gest.trail.push([p.x, p.y]);
-    }
-    gest.revs = gest.revs.filter(t => tnow - t < 650);
-    if (!gest.erase && gest.revs.length >= 3) startErase(gest);
-    if (gest.erase) { eraseTo(gest, p.x, p.y); return; }
-    const drawMode = p.touch || inputMode === 'draw';
-    if (drawMode && !writable(cur)) {                      // 덜 펼친 덩어리: 엄지로 민 자국만 남는다
-      if (Math.hypot(p.x - gest.lx, p.y - gest.ly) >= 7) { smearSeg(gest.lx, gest.ly, p.x, p.y); gest.lx = p.x; gest.ly = p.y; }
-      if (!gest.told && gest.moved > 40) { gest.told = true; toast(COARSE ? '두 손가락으로 조금만 펼치면 새길 수 있어요' : '가장자리를 끌어 조금만 펼치면 새길 수 있어요'); }
-    } else if (drawMode) {                                 // 펼친 점토: 긋는 대로 새겨진다
-      if (!gest.stroke && !gest.ended) { gest.stroke = strokeBegin(p.x0, p.y0); learn('write'); }
-      if (gest.stroke) { gest.stroke = strokeMove(gest.stroke, p.x, p.y, false); if (!gest.stroke) gest.ended = true; }
-    } else if (Math.hypot(p.x - gest.lx, p.y - gest.ly) >= 7) { // 그 밖에는 엄지로 민 자국
-      smearSeg(gest.lx, gest.ly, p.x, p.y); gest.lx = p.x; gest.ly = p.y;
-    }
-    return;
-  }
-  if (gest.type === 'wet' && !gest.hold) {                 // 굳은 점토 문지르기 → 물이 묻는다
-    if (Math.hypot(p.x - gest.lx, p.y - gest.ly) < 2) return;
-    clearTimeout(gest.timer);
-    wetStroke(gest.lx, gest.ly, p.x, p.y); gest.lx = p.x; gest.ly = p.y;
-  }
-});
+  if (Math.hypot(p.x - g.lx, p.y - g.ly) >= 7) { smearSeg(g.lx, g.ly, p.x, p.y); g.lx = p.x; g.ly = p.y; }
+  if (writer && !g.told && g.moved > 40) { g.told = true; toast(COARSE ? '두 손가락으로 조금만 펼치면 새길 수 있어요' : '가장자리를 끌어 조금만 펼치면 새길 수 있어요'); }
+}
 function endPtr(e, cancel) {
   const p = pts.get(e.pointerId); if (!p) return;
   pts.delete(e.pointerId);
   if (!gest) return;
   const g = gest;
-  if (g.type === 'pinch' || g.type === 'warm') {
+  if (g.type === 'two' || g.type === 'warm') {
     if (g.type === 'warm' && pts.size < 2) endWarm();
+    if (g.type === 'two' && !cancel && performance.now() - g.t0 < 380 && g.maxMove < 12) {    // 두 손가락 톡 = 가까이/멀리
+      zoomTo(Z > 1 ? 1 : 2.2, g.m0x, g.m0y);
+    }
     gest = pts.size ? { type: 'none' } : null; saveSoon(); return;
   }
   if (e.pointerId !== g.id) { if (!pts.size) gest = null; return; }
@@ -879,25 +939,21 @@ function endPtr(e, cancel) {
   clearTimeout(g.timer);
   const dur = performance.now() - p.t0;
   if (g.type === 'wet' && g.hold) endWarm();
+  if (g.type === 'soak') saveSoon();
   if (cancel) return;
   if (g.type === 'press') {
     if (g.erase) { finishErase(g); return; }
-    if (g.stroke) { strokeMove(g.stroke, p.x, p.y, true); saveSoon(); return; }
+    if (g.stroke) { strokeMove(g.stroke, p.x, p.y, g.stroke.f, true); saveSoon(); return; }
     if (g.moved < 6) {
-      if (!p.touch && inputMode === 'type' && dur < 350) {                                                    // 클릭한 자리에 쓰기 시작
-        if (writable(cur)) { startTyping(p.x0, p.y0); return; }
-        toast('가장자리를 끌어 조금만 펼치면 새길 수 있어요');
-      }               // 클릭한 자리에 쓰기 시작 (꾹 누르면 지문)
-      if (!g.mark) g.mark = pressAt(p.x0, p.y0, 1.25);                                                         // 톡 = 지문
-      if (dur > 230) deepen(g.mark, 1.25 + Math.min(dur, 900) / 900 * 1.1);                                    // 오래 누를수록 깊게
+      if (g.kind === 'pen') pokeAt(p.x0, p.y0, g.f0);
+      else { const m = pressAt(p.x0, p.y0, 1.25); if (dur > 230) deepen(m, 1.25 + Math.min(dur, 900) / 900 * 1.1); }
     }
     saveSoon();
   } else if (g.type === 'edge') {
     if (!g.stretched && g.inside) { const m = pressAt(p.x0, p.y0, 1.25); if (dur > 230) deepen(m, 1.25 + Math.min(dur, 900) / 900 * 1.1); }
     saveSoon();
   } else if (g.type === 'wet' && !g.hold && g.moved < 6 && dur < 300) {
-    dust(p.x, p.y, 7, '232,227,218');
-    toast('굳었어요 · 문지르면 물이 묻어 글이 보여요');
+    dust(p.x, p.y, 7, '232,227,218'); toast('굳었어요 · 문지르면 물이 묻어 글이 보여요');
   }
 }
 stage.addEventListener('pointerup', e => endPtr(e, false));
@@ -905,37 +961,25 @@ stage.addEventListener('pointercancel', e => endPtr(e, true));
 function hoverCursor(e) {
   if (e.pointerType !== 'mouse' || !cur || view !== 'work') return;
   const r = rAt(e.clientX, e.clientY), dry = moist(cur) === 0;
-  stage.style.cursor = r > 1.2 ? 'default' : dry ? 'grab' : r > .88 ? 'move' : inputMode === 'type' ? 'text' : 'crosshair';
+  stage.style.cursor = r > 1.2 ? 'default' : dry || cur.broken ? 'grab' : r > .88 && Z === 1 ? 'move' : 'crosshair';
 }
-
-// 트랙패드 벌리기·휠로도 펼칠 수 있다
+// 노트북: 휠·트랙패드로 가까이 보기
 stage.addEventListener('wheel', e => {
-  if (view !== 'work' || !cur || typing) return;
+  if (view !== 'work' || !cur) return;
   e.preventDefault();
-  if (moist(cur) === 0) { toast('굳어서 펴지지 않아요 · 꾹 누르고 있으면 말랑해져요'); return; }
-  const d = -e.deltaY * (e.ctrlKey ? .01 : .0022);
-  setSpread(cur, cur.sx + d, cur.sy + d * .8); cur.lt = now(); saveSoon();
+  const z1 = clamp(Z * Math.exp(-e.deltaY * (e.ctrlKey ? .012 : .0025)), 1, 3);
+  if (z1 === Z) return;
+  zoomAnim = null;
+  if (z1 <= 1.001) { Z = 1; cx = baseCx; cy = baseCy; }
+  else { cx = e.clientX - (e.clientX - cx) * (z1 / Z); cy = e.clientY - (e.clientY - cy) * (z1 / Z); Z = z1; clampPan(); learn('zoom'); }
+  dirtyGL = true;
 }, { passive: false });
-
-// 노트북: 새기는 방법 고르기
-const modeEl = $('#mode');
-function setInputMode(m) {
-  inputMode = m === 'type' ? 'type' : 'draw';
-  modeEl.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === inputMode)));
-  try { localStorage.setItem(INPUT, inputMode); } catch (_) { /* 무시 */ }
-  hintNow = null;
-}
-modeEl.addEventListener('click', e => {
-  const b = e.target.closest('button'); if (!b) return;
-  if (typing) endTyping();
-  setInputMode(b.dataset.mode);
-  toast(inputMode === 'type' ? '새길 곳을 클릭하고 타이핑하세요 · 꾹 누르면 지문' : '드래그하면 그려서 새겨져요 · 클릭하면 지문');
-});
 
 /* ───────── 안내 문구 · 라벨 ───────── */
 function hintText() {
-  const c = cur; if (!c || typing) return '';
+  const c = cur; if (!c) return '';
   const m = moist(c);
+  if (c.broken) return learned.reclaim ? '문질러 물에 불리면 다시 반죽돼요' : '오래 안 봐서 깨졌어요 · 계속 문질러 물에 불리면 다시 반죽돼요';
   if (m === 0) {
     if (hasWriting(c) && !learned.water) return '문질러서 물을 묻히면 숨은 글이 보여요';
     if (!learned.rub) return COARSE ? '여러 손가락으로 감싸고 있으면 다시 말랑해져요' : '꾹 누르고 있으면 체온으로 다시 말랑해져요';
@@ -943,21 +987,23 @@ function hintText() {
   }
   if (!learned.print) return '만져보세요';
   if (!writable(c)) return learned.write ? '' : COARSE ? '두 손가락으로 벌려 조금 펼치면 새길 수 있어요' : '가장자리를 잡고 끌어 조금 펼치면 새길 수 있어요';
-  if (!learned.write) return COARSE ? '손가락으로 그으면 새겨져요' : inputMode === 'type' ? '새길 곳을 클릭하고 타이핑하세요' : '드래그하면 새겨져요';
+  if (!learned.write) return penSeen ? '펜슬로 그으면 새겨져요 · 세게 누를수록 깊게' : COARSE ? '그으면 새겨져요 · 펜슬이 있으면 펜슬로' : '드래그하면 새겨져요';
+  if (!learned.zoom) return COARSE ? '두 손가락으로 톡 치면 가까이 볼 수 있어요' : '휠을 굴리면 가까이 볼 수 있어요';
   if (hasWriting(c) && !learned.erase) return '잘못 새긴 곳은 왔다 갔다 문지르면 메워져요';
   if (hasWriting(c) && !learned.dry) return `그대로 두면 ${CONFIG.dryMs / 1000}초 뒤에 굳고 글이 숨어요`;
   return '';
 }
+function stateOf(c) {
+  const m = moist(c);
+  if (c.broken) return '깨짐';
+  if (m === 0) return decayOf(c) > .5 ? '금 가는 중' : c.crack && c.crack.type === 'split' ? '갈라짐' : '굳음';
+  return m >= .55 ? '말랑함' : '꾸덕해지는 중';
+}
 function labelText() {
-  const c = cur, m = moist(c), n = countOf(c, 'p'), w = writeSummary(c);
-  let st;
-  if (typing) st = '쓰는 중';
-  else if (rubbing) st = '데우는 중';
-  else if (m === 0) st = c.crack && c.crack.type === 'split' ? '갈라짐' : '굳음';
-  else if (m >= .55) st = '말랑함';
-  else st = '꾸덕해지는 중';
-  const left = m > 0 && !typing ? ` · 굳기까지 ${Math.ceil(m * CONFIG.dryMs / 1000)}초` : '';
-  return `No.${String(c.no).padStart(2, '0')} · 지문 ${n}${w ? ` · ${w}` : ''} · ${st}${left}`;
+  const c = cur, m = moist(c), w = writeSummary(c);
+  const st = rubbing ? '데우는 중' : (c.broken && c.soak) ? `불리는 중 ${Math.round(c.soak * 100)}%` : stateOf(c);
+  const left = m > 0 ? ` · 굳기까지 ${Math.ceil(m * CONFIG.dryMs / 1000)}초` : '';
+  return `No.${String(c.no).padStart(2, '0')} · 지문 ${countOf(c, 'p')}${w ? ` · ${w}` : ''} · ${st}${left}${Z > 1 ? ' · 가까이' : ''}`;
 }
 let hintNow = null, hintT = 0;
 function setHint(t) {
@@ -969,52 +1015,49 @@ const setLabel = t => { if (labelEl.textContent !== t) labelEl.textContent = t; 
 
 /* ───────── 작업 화면 그리기 ───────── */
 const easeOutBack = t => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
-let lastLabel = 0, lastT = 0, waterOn = false;
+let lastLabel = 0, lastT = 0, waterOn = false, seenTick = 0;
 function frame(t) {
   requestAnimationFrame(frame);
   const dt = Math.min(.05, (t - lastT) / 1000 || 0); lastT = t;
-  if (view === 'home') { tickCards(dt); return; }
+  if (view === 'home') { tickWheel(dt); return; }
   if (!cur) return;
   const c = cur;
-  if (typing) c.lt = now();
-  if (gest && gest.type === 'warm' && pts.size >= 2) warmBy(dt * .05 * pts.size);   // 손가락이 많을수록 빨리 데워진다
-  if (gest && gest.type === 'wet' && gest.hold) warmBy(dt * .2);                     // 꾹 누르고 있으면 체온이 전해진다
+  if (gest && gest.type === 'warm' && pts.size >= 2) warmBy(dt * .05 * pts.size);
+  if (gest && gest.type === 'wet' && gest.hold) warmBy(dt * .2);
   const m = moist(c);
-  if (m === 0 && ensureCrack(c)) {                           // 방금 굳었다
-    crackAnim = RM ? null : { t0: t }; learn('dry'); buzz(20); c.v++; saveSoon(); fxDirty = true;
-  }
+  if (m === 0 && ensureCrack(c)) { crackAnim = RM ? null : { t0: t }; learn('dry'); buzz(20); c.v++; saveSoon(); fxDirty = true; }
+  if (m === 0 && !c.broken && t - seenTick > 1000) { seenTick = t; c.seen = now(); saveSoon(); }   // 들여다보는 동안은 깨지지 않는다
   if (spawnT < 1) { spawnT = clamp((t - spawnStart) / 520, 0, 1); spawnK = Math.max(.02, easeOutBack(spawnT)); dirtyGL = true; } else spawnK = 1;
+  if (zoomAnim) {
+    const k = easeOut(clamp((t - zoomAnim.t0) / 380, 0, 1));
+    Z = lerp(zoomAnim.z0, zoomAnim.z1, k); cx = lerp(zoomAnim.x0, zoomAnim.x1, k); cy = lerp(zoomAnim.y0, zoomAnim.y1, k);
+    if (k >= 1) { zoomAnim = null; if (Z > 1) clampPan(); }
+    dirtyGL = true;
+  }
   if (warm > 0 && !(gest && (gest.type === 'warm' || gest.hold))) { warm = Math.max(0, warm - .02); dirtyGL = true; }
-  // 물 자국: 천천히 마른다
-  if (performance.now() < waterUntil) {
-    dryWater(wctx, waterCv.width, waterCv.height, .012);
-    workR.setWater(waterCv); waterOn = true; dirtyGL = true;
-  } else if (waterOn) { wctx.clearRect(0, 0, waterCv.width, waterCv.height); waterOn = false; dirtyGL = true; }
-  const wet = wetOf(m), hide = 1 - smooth(0, .3, m);          // 마를수록 글이 하얗게 묻힌다
-  if (Math.abs(wet - lastWet) > .006 || Math.abs(hide - lastHide) > .01) dirtyGL = true;
+  if (performance.now() < waterUntil) { dryWater(wctx, waterCv.width, waterCv.height, .012); workR.setWater(waterCv); waterOn = true; dirtyGL = true; }
+  else if (waterOn) { wctx.clearRect(0, 0, waterCv.width, waterCv.height); waterOn = false; dirtyGL = true; }
+  const wet = wetOf(m), hide = 1 - smooth(0, .3, m), shrink = shrinkOf(m);
+  if (Math.abs(wet - lastWet) > .006 || Math.abs(hide - lastHide) > .01 || Math.abs(shrink - lastShrink) > .0008) dirtyGL = true;
   if (dirtyGL) {
-    workR.draw(c, { cx, cy, R0: R0 * spawnK, wet, warm, hide, waterTex: waterOn });
-    lastWet = wet; lastHide = hide; dirtyGL = false; fxDirty = true;
+    workR.draw(c, { cx, cy, R0: R0 * spawnK * shrink * Z, wet, warm, hide, waterTex: waterOn });
+    lastWet = wet; lastHide = hide; lastShrink = shrink; dirtyGL = false; fxDirty = true;
   }
   drawFx(t, m);
   if (t - lastLabel > 200) { lastLabel = t; setLabel(labelText()); setHint(hintText()); }
 }
 function drawFx(t, m) {
-  const blink = !!typing;
-  if (!fxDirty && !crackAnim && !particles.length && !blink) return;
+  if (!fxDirty && !crackAnim && !particles.length) return;
   fxDirty = false;
   fctx.setTransform(DPR, 0, 0, DPR, 0, 0); fctx.clearRect(0, 0, W, Hs);
-  const c = cur;
+  const c = cur, R = R0 * spawnK * shrinkOf(m) * Z;
   if (c.crack) {
     let p = 1;
     if (crackAnim) { p = clamp((t - crackAnim.t0) / 1700, 0, 1); if (p >= 1) crackAnim = null; }
     const alpha = 1 - smooth(0, .25, m);
-    if (alpha > 0) drawCracks(fctx, c, cx, cy, R0 * spawnK, p, alpha, 1);
+    if (alpha > 0) drawCracks(fctx, c, cx, cy, R, p, alpha, Z * (1 + decayOf(c) * 1.3));
   }
-  if (blink && Math.floor(t / 530) % 2 === 0) {            // 키보드로 쓸 때 깜빡이는 커서
-    const q = caretPos();
-    if (q) { fctx.fillStyle = 'rgba(70,56,42,.75)'; fctx.fillRect(q.x, q.y + q.h * .08, 1.6, q.h * .9); }
-  }
+  if (c.broken) drawBreak(fctx, c, cx, cy, R, Z, '#F6F2EC');
   if (particles.length) {
     particles = particles.filter(q => (q.life -= 1 / 45) > 0);
     for (const q of particles) {
@@ -1030,178 +1073,231 @@ function showView(v) {
   $('#work').classList.toggle('off', v !== 'work');
   $('#home').classList.toggle('off', v !== 'home');
   document.body.classList.toggle('at-home', v === 'home');
-  if (v === 'work') { dirtyGL = true; fxDirty = true; } else if (!thumbBusy) pumpThumbs();
+  if (v === 'work') { dirtyGL = true; fxDirty = true; } else { wheelDirty = true; if (!thumbBusy) pumpThumbs(); }
 }
 function openClay(c, { spawn = false } = {}) {
-  cur = c;
+  cur = c; c.seen = now();
   ensureCrack(c);
-  workR.upload(mapFull.rgba, mapFull.build(c), 0);
-  workR.upload(mapBase.rgba, mapBase.build(c, NOWRITE), 2);
-  crackAnim = null; particles = []; warm = 0; rubbing = false; gest = null; pts.clear(); typing = null;
+  rebuildMaps();
+  crackAnim = null; particles = []; warm = 0; rubbing = false; gest = null; pts.clear();
   wctx.clearRect(0, 0, waterCv.width, waterCv.height); waterUntil = 0; waterOn = false;
+  Z = 1; zoomAnim = null; cx = baseCx; cy = baseCy;
   spawnT = spawn && !RM ? 0 : 1; spawnStart = performance.now(); spawnK = spawnT < 1 ? .02 : 1;
-  lastWet = -1; lastHide = -1; hintNow = null;
-  showView('work');
-  setLabel(labelText());
+  lastWet = -1; lastHide = -1; lastShrink = -1; hintNow = null;
+  showView('work'); setLabel(labelText()); saveSoon();
 }
-function goHome() {
-  if (typing) endTyping();
-  if (cur) cur.v++;
-  save(); showView('home'); refreshHome();
-}
+function goHome() { if (cur) cur.v++; save(); showView('home'); refreshHome(); }
 $('#home-btn').addEventListener('click', goHome);
 
-/* ───────── 홈: 점토 선반 ─────────
-   새긴 글은 숨긴 채로 보여주고, 카드를 문질러 물을 묻힌 자리만 드러난다 */
-const shelf = $('#shelf'), cards = new Map(), activeCards = new Set();
-let cardW = 0, thumbQ = [], thumbBusy = false, homeT = 0, lastRemoved = null;
+/* ───────── 홈: 물레 ─────────
+   가운데 = 가장 최근 점토, 바깥으로 갈수록 오래된 점토. 물레판을 돌려 지난 점토를 찾는다.
+   점토를 톡 = 열기, 문지르기 = 물 묻혀 숨은 글 보기, 3초 꾹 = 납작해지며 지우기 */
+const wheelCv = $('#wheel'), wheelCtx = wheelCv.getContext('2d'), infoEl = $('#wheel-info');
+const RINGS = [{ r: 0, n: 1, cell: .3 }, { r: .33, n: 6, cell: .2 }, { r: .62, n: 10, cell: .155 }, { r: .86, n: 15, cell: .118 }];
+const WHEEL_BG = '#EAE2D7';
+let D = 300, wheelAng = 0, wheelVel = 0, wheelDirty = true, slots = [], focusId = null;
+const thumbs = new Map(), activeThumbs = new Set();
+let thumbQ = [], thumbBusy = false, homeT = 0, lastRemoved = null;
 const pad2 = n => String(n).padStart(2, '0');
 const fmtDate = ms => { const d = new Date(ms); return `${pad2(d.getMonth() + 1)}.${pad2(d.getDate())}`; };
 const compCv = document.createElement('canvas'), compCtx = compCv.getContext('2d');
 
+function layoutWheel() {
+  const top = $('.home-head').getBoundingClientRect().bottom || 110;
+  D = Math.round(Math.max(220, Math.min(W - 28, Hs - top - 230, 640)));
+  wheelCv.style.width = D + 'px'; wheelCv.style.height = D + 'px';
+  wheelCv.width = Math.round(D * DPR); wheelCv.height = Math.round(D * DPR);
+  wheelDirty = true;
+}
 function refreshHome(force) {
   const list = [...clays].sort((a, b) => b.created - a.created);
   $('#count').textContent = `점토 ${list.length}개`;
-  $('#empty').hidden = list.length > 0;
-  for (const [id, el] of cards) if (!clays.some(c => c.id === id)) { el.remove(); cards.delete(id); }
-  for (const c of list) shelf.appendChild(cardFor(c));
-  const plate = shelf.querySelector('.plate');
-  const w = plate ? Math.round(plate.clientWidth) : 160;
-  if (w !== cardW) { cardW = w; force = true; }
-  for (const c of list) {
-    ensureCrack(c); updateCap(c);
-    const el = cards.get(c.id), m = moist(c);
-    const key = `${c.v}|${cardW}|${m > 0 ? Math.round(wetOf(m) * 8) : 'd'}`;
-    if (force || el.dataset.key !== key) { el.dataset.key = key; queueThumb(c); }
+  slots = []; let i = 0;
+  RINGS.forEach((ring, ri) => {
+    for (let k = 0; k < ring.n && i < list.length; k++, i++) slots.push({ c: list[i], ring: ri, a0: k / ring.n * Math.PI * 2 + ri * .37 - Math.PI / 2, del: null });
+  });
+  for (const id of [...thumbs.keys()]) if (!clays.some(c => c.id === id)) thumbs.delete(id);
+  for (const s of slots) {
+    const c = s.c; ensureCrack(c); ensureBroken(c);
+    const size = Math.round(RINGS[s.ring].cell * D), m = moist(c);
+    const key = `${c.v}|${size}|${m > 0 ? Math.round(wetOf(m) * 8) : 'd'}|${Math.round(decayOf(c) * 4)}|${c.broken ? 'b' : ''}`;
+    let th = thumbs.get(c.id);
+    if (!th) { th = { mask: document.createElement('canvas'), until: 0 }; thumbs.set(c.id, th); }
+    if (force || th.key !== key) { th.key = key; th.size = size; queueThumb(c); }
   }
+  if (!focusId || !clays.some(c => c.id === focusId)) focusId = list[0] ? list[0].id : null;
+  updateInfo(); wheelDirty = true;
   clearTimeout(homeT);
-  if (list.some(c => moist(c) > 0)) homeT = setTimeout(() => { if (view === 'home') refreshHome(); }, 2500);
+  if (list.some(c => moist(c) > 0 || (!c.broken && moist(c) === 0))) homeT = setTimeout(() => { if (view === 'home') refreshHome(); }, 3000);
 }
-function cardFor(c) {
-  let el = cards.get(c.id);
-  if (el) return el;
-  el = document.createElement('div');
-  el.className = 'card'; el.tabIndex = 0; el.setAttribute('role', 'button'); el.dataset.id = c.id;
-  el.innerHTML = '<div class="plate"><div class="squash"><canvas></canvas></div></div><div class="cap"><span class="no"></span><span class="first"></span></div>';
-  el._hid = document.createElement('canvas'); el._rev = document.createElement('canvas'); el._mask = document.createElement('canvas');
-  attachCard(el); cards.set(c.id, el);
-  return el;
-}
-function updateCap(c) {
-  const el = cards.get(c.id); if (!el) return;
-  const m = moist(c), st = m > 0 ? '말랑' : (c.crack && c.crack.type === 'split' ? '갈라짐' : '굳음');
-  const n = countOf(c, 'p'), w = writeSummary(c);
-  el.querySelector('.no').textContent = `No.${pad2(c.no)} · ${fmtDate(c.created)} · ${st}`;
-  const f = el.querySelector('.first');
-  f.textContent = `${w || '새김 없음'} · 지문 ${n}${c.example ? ' (예시)' : ''}`;
-  f.classList.toggle('none', !w);
-  el.setAttribute('aria-label', `점토 No.${c.no}, ${w || '새김 없음'}, 지문 ${n}개. 문지르면 숨은 글이 보이고, 누르면 열기, 3초 길게 누르면 지우기`);
+function updateInfo() {
+  const c = clays.find(x => x.id === focusId);
+  if (!c) { infoEl.innerHTML = '<span class="i-no">아직 점토가 없어요</span><span class="i-sub">아래 흙을 위로 끌어 떼어내세요</span>'; return; }
+  const w = writeSummary(c);
+  infoEl.innerHTML = '';
+  const a = document.createElement('span'); a.className = 'i-no'; a.textContent = `No.${pad2(c.no)} · ${fmtDate(c.created)} · ${stateOf(c)}${c.example ? ' (예시)' : ''}`;
+  const b = document.createElement('span'); b.className = 'i-sub'; b.textContent = `${w || '새김 없음'} · 지문 ${countOf(c, 'p')}${c.broken ? ' · 열어서 물에 불리면 다시 반죽돼요' : decayOf(c) > .5 ? ' · 오래 안 봐서 금이 가고 있어요' : ''}`;
+  infoEl.append(a, b);
 }
 function queueThumb(c) { if (!thumbQ.includes(c)) thumbQ.push(c); if (!thumbBusy) pumpThumbs(); }
 function pumpThumbs() {
-  if (view !== 'home') { thumbBusy = false; return; }   // 작업 화면에서는 지도를 빌려 쓰지 않는다
+  if (view !== 'home') { thumbBusy = false; return; }
   const c = thumbQ.shift();
   if (!c) { thumbBusy = false; return; }
   thumbBusy = true;
   try { renderThumb(c); } catch (e) { console.error(e); }
+  wheelDirty = true;
   setTimeout(pumpThumbs, 16);
 }
 function renderThumb(c) {
-  const el = cards.get(c.id); if (!el || !clays.includes(c)) return;
-  const w = cardW, px = Math.round(w * DPR);
-  const k = Math.min((w * .43) / (R0 * 2.1), (w * .42) / (R0 * Math.max(c.sx, c.sy) * 1.1));
-  const R = R0 * k, ccx = w / 2, ccy = w * .47, m = moist(c), wet = wetOf(m);
+  const th = thumbs.get(c.id); if (!th || !clays.includes(c)) return;
+  const w = th.size, px = Math.round(w * DPR), m = moist(c), wet = wetOf(m), sh = shrinkOf(m);
+  const k = Math.min((w * .42) / (R0 * 1.9), (w * .44) / (R0 * Math.max(c.sx, c.sy) * 1.12));
+  const R = R0 * k * sh, ccx = w / 2, ccy = w * .47;
   thumbR.size(w, w);
   thumbR.upload(mapFull.rgba, mapFull.build(c), 0);
   thumbR.upload(mapBase.rgba, mapBase.build(c, NOWRITE), 2);
-  const snap = (target, o) => {
+  const snap = o => {
     thumbR.draw(c, { cx: ccx, cy: ccy, R0: R, wet, warm: 0, ...o });
-    target.width = px; target.height = px;
-    const ctx = target.getContext('2d'); ctx.drawImage(thumbR.cv, 0, 0);
-    if (c.crack && m === 0) { ctx.setTransform(DPR, 0, 0, DPR, 0, 0); drawCracks(ctx, c, ccx, ccy, R, 1, o.waterAll ? .55 : 1, Math.max(.5, k * 1.4)); }
+    const cv = document.createElement('canvas'); cv.width = px; cv.height = px;
+    const ctx = cv.getContext('2d'); ctx.drawImage(thumbR.cv, 0, 0); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    const s = Math.max(.5, k * 1.4);
+    if (c.crack && m === 0) drawCracks(ctx, c, ccx, ccy, R, 1, o.waterAll ? .55 : 1, s * (1 + decayOf(c) * 1.3));
+    if (c.broken) drawBreak(ctx, c, ccx, ccy, R, s, WHEEL_BG);
+    return cv;
   };
-  snap(el._hid, { hide: 1 });                     // 평소: 글이 숨은 모습
-  snap(el._rev, { hide: 0, waterAll: 1 });        // 물 묻은 모습: 글이 드러남
-  el._mask.width = Math.round(w / 2); el._mask.height = Math.round(w / 2);
-  el._w = w;
-  composeCard(el);
+  th.hid = snap({ hide: 1 });
+  th.rev = snap({ hide: 0, waterAll: 1 });
+  th.mask.width = Math.round(w / 2); th.mask.height = Math.round(w / 2); th.w = w;
+  th.comp = document.createElement('canvas'); th.comp.width = px; th.comp.height = px;
+  composeThumb(th);
 }
-function composeCard(el) {
-  const cv = el.querySelector('canvas'), px = el._hid.width;
-  if (!px) return;
-  if (cv.width !== px) { cv.width = px; cv.height = px; }
-  const ctx = cv.getContext('2d');
-  ctx.clearRect(0, 0, px, px); ctx.drawImage(el._hid, 0, 0);
-  if (!activeCards.has(el)) return;
+function composeThumb(th) {
+  if (!th.hid) return;
+  const ctx = th.comp.getContext('2d'), px = th.comp.width;
+  ctx.clearRect(0, 0, px, px); ctx.drawImage(th.hid, 0, 0);
+  if (!activeThumbs.has(th)) return;
   if (compCv.width !== px) { compCv.width = px; compCv.height = px; }
-  compCtx.globalCompositeOperation = 'source-over'; compCtx.clearRect(0, 0, px, px); compCtx.drawImage(el._rev, 0, 0);
-  compCtx.globalCompositeOperation = 'destination-in'; compCtx.drawImage(el._mask, 0, 0, px, px);
+  compCtx.globalCompositeOperation = 'source-over'; compCtx.clearRect(0, 0, px, px); compCtx.drawImage(th.rev, 0, 0, px, px);
+  compCtx.globalCompositeOperation = 'destination-in'; compCtx.drawImage(th.mask, 0, 0, px, px);
   compCtx.globalCompositeOperation = 'source-over';
   ctx.drawImage(compCv, 0, 0);
 }
-function wetCard(el, x0, y0, x1, y1) {
-  if (!el._w) return;
-  const mctx = el._mask.getContext('2d'), s = el._mask.width / el._w, d = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.ceil(d / 5));
-  for (let i = 1; i <= n; i++) paintWater(mctx, lerp(x0, x1, i / n) * s, lerp(y0, y1, i / n) * s, el._w * .11 * s);
-  el._until = performance.now() + 7000; activeCards.add(el); learn('water');
+function slotPos(s) {
+  const ring = RINGS[s.ring], a = s.a0 + (s.ring ? wheelAng : 0);
+  return [D / 2 + Math.cos(a) * ring.r * D / 2, D / 2 + Math.sin(a) * ring.r * D / 2, RINGS[s.ring].cell * D];
 }
-function tickCards() {
-  if (!activeCards.size) return;
-  const t = performance.now();
-  for (const el of activeCards) {
-    dryWater(el._mask.getContext('2d'), el._mask.width, el._mask.height, .012);
-    if (t > el._until || !el.isConnected) { activeCards.delete(el); el._mask.getContext('2d').clearRect(0, 0, el._mask.width, el._mask.height); }
-    composeCard(el);
+function drawWheel() {
+  const g = wheelCtx, r = D / 2;
+  g.setTransform(DPR, 0, 0, DPR, 0, 0); g.clearRect(0, 0, D, D);
+  // 바닥 그림자 · 물레판
+  g.fillStyle = 'rgba(110,90,66,.10)'; g.beginPath(); g.ellipse(r + 4, r + 9, r * .97, r * .97, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = WHEEL_BG; g.beginPath(); g.arc(r, r, r * .97, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = '#DCD1C2'; g.lineWidth = 1.2; g.stroke();
+  g.save(); g.translate(r, r); g.rotate(wheelAng);
+  for (let i = 1; i <= 22; i++) {                                // 물레 자국(돌면서 같이 돈다)
+    const rr = r * .95 * i / 22;
+    g.strokeStyle = `rgba(150,128,102,${i % 4 ? .07 : .12})`; g.lineWidth = .8;
+    g.beginPath(); g.ellipse(0, 0, rr, rr * (1 - .004 * (i % 3)), i * .3, 0, Math.PI * 2); g.stroke();
+  }
+  for (let i = 0; i < 7; i++) {                                  // 흙물 얼룩
+    const a = i * .9 + .2, rr = r * (.25 + (i * 37 % 60) / 100);
+    g.strokeStyle = 'rgba(176,158,134,.16)'; g.lineWidth = 3 + (i % 3) * 2; g.lineCap = 'round';
+    g.beginPath(); g.arc(0, 0, rr, a, a + .35 + (i % 4) * .12); g.stroke();
+  }
+  g.restore();
+  g.fillStyle = '#E2D8CB'; g.beginPath(); g.arc(r, r, r * .07, 0, Math.PI * 2); g.fill();
+  // 점토들: 뒤(위쪽)부터
+  const order = slots.map(s => [s, slotPos(s)]).sort((a, b) => a[1][1] - b[1][1]);
+  for (const [s, [x, y, size]] of order) {
+    const th = thumbs.get(s.c.id), sq = s.del ? clamp((performance.now() - s.del.t0 - 250) / 2750, 0, 1) : 0;
+    g.save(); g.translate(x, y + size * .03);
+    if (sq > 0) g.scale(1 + .5 * sq, 1 - .78 * sq);
+    if (th && th.comp) g.drawImage(th.comp, -size / 2, -size * .47, size, size);
+    else { g.fillStyle = '#D9CDBD'; g.beginPath(); g.ellipse(0, 0, size * .2, size * .17, 0, 0, Math.PI * 2); g.fill(); }
+    if (s.c.id === focusId && slots.length > 1) { g.strokeStyle = 'rgba(74,63,53,.35)'; g.setLineDash([3, 4]); g.lineWidth = 1; g.beginPath(); g.arc(0, 0, size * .46, 0, Math.PI * 2); g.stroke(); g.setLineDash([]); }
+    g.restore();
   }
 }
-function attachCard(el) {
-  let st = null;
-  const sq = () => el.querySelector('.squash');
-  const local = e => { const r = el.querySelector('.plate').getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-  const stopHold = () => { if (!st || !st.raf) return; cancelAnimationFrame(st.raf); st.raf = 0; const s = sq(); s.style.transition = ''; s.style.transform = ''; };
-  el.addEventListener('pointerdown', e => {
-    if (e.button > 0) return;
-    const [lx, ly] = local(e);
-    st = { x: e.clientX, y: e.clientY, lx, ly, t0: performance.now(), raf: 0, buzzed: false, moved: false };
-    const loop = () => {                                     // 3초 꾹 누르면 납작해지며 지워진다
-      if (!st || !st.raf) return;
-      const p = clamp((performance.now() - st.t0 - 250) / 2750, 0, 1), s = sq();
-      s.style.transition = 'none'; s.style.transform = `scale(${1 + .5 * p}, ${1 - .78 * p})`;
-      if (p > 0 && !st.buzzed) { st.buzzed = true; buzz(10); }
-      if (p >= 1) { st = null; removeClay(el.dataset.id, el); return; }
-      st.raf = requestAnimationFrame(loop);
-    };
-    st.raf = requestAnimationFrame(loop);
-  });
-  el.addEventListener('pointermove', e => {
-    if (!st) return;
-    if (!st.moved && Math.hypot(e.clientX - st.x, e.clientY - st.y) > 8) { st.moved = true; stopHold(); }
-    if (st.moved) { const [lx, ly] = local(e); wetCard(el, st.lx, st.ly, lx, ly); st.lx = lx; st.ly = ly; composeCard(el); }   // 문지르면 물이 묻는다
-  });
-  el.addEventListener('pointerup', () => { if (!st) return; const s = st; stopHold(); st = null; if (!s.moved && performance.now() - s.t0 < 400) openById(el.dataset.id); });
-  el.addEventListener('pointercancel', () => { stopHold(); st = null; });
-  el.addEventListener('pointerleave', () => { stopHold(); st = null; });
-  el.addEventListener('contextmenu', e => e.preventDefault());
-  el.addEventListener('keydown', e => {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openById(el.dataset.id); }
-    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); removeClay(el.dataset.id, el); }
-  });
+function tickWheel(dt) {
+  if (!wheelPtr && Math.abs(wheelVel) > .0004) { wheelAng += wheelVel; wheelVel *= .955; wheelDirty = true; }
+  const t = performance.now();
+  for (const th of activeThumbs) {
+    dryWater(th.mask.getContext('2d'), th.mask.width, th.mask.height, .012);
+    if (t > th.until) { activeThumbs.delete(th); th.mask.getContext('2d').clearRect(0, 0, th.mask.width, th.mask.height); }
+    composeThumb(th); wheelDirty = true;
+  }
+  if (slots.some(s => s.del)) wheelDirty = true;
+  if (wheelDirty) { drawWheel(); wheelDirty = false; }
 }
+function slotAt(x, y) {
+  let best = null, bd = Infinity;
+  for (const s of slots) { const [sx, sy, size] = slotPos(s), d = Math.hypot(x - sx, y - sy); if (d < size * .34 && d < bd) { bd = d; best = s; } }
+  return best;
+}
+let wheelPtr = null;
+const wheelLocal = e => { const r = wheelCv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+const angAt = (x, y) => Math.atan2(y - D / 2, x - D / 2);
+wheelCv.addEventListener('pointerdown', e => {
+  if (wheelPtr) return;
+  const [x, y] = wheelLocal(e);
+  if (Math.hypot(x - D / 2, y - D / 2) > D / 2) return;
+  try { wheelCv.setPointerCapture(e.pointerId); } catch (_) { /* 무시 */ }
+  const s = slotAt(x, y);
+  wheelPtr = { id: e.pointerId, x0: x, y0: y, x, y, t0: performance.now(), slot: s, moved: false, a: angAt(x, y) };
+  wheelVel = 0;
+  if (s) { focusId = s.c.id; updateInfo(); s.del = { t0: performance.now() }; wheelDirty = true; }
+});
+wheelCv.addEventListener('pointermove', e => {
+  const w = wheelPtr; if (!w || e.pointerId !== w.id) return;
+  const [x, y] = wheelLocal(e);
+  if (!w.moved && Math.hypot(x - w.x0, y - w.y0) > 8) { w.moved = true; if (w.slot) w.slot.del = null; }
+  if (w.moved && w.slot) {                                       // 점토를 문지르면 물이 묻는다
+    const th = thumbs.get(w.slot.c.id), [sx, sy, size] = slotPos(w.slot);
+    if (th && th.w) {
+      const mctx = th.mask.getContext('2d'), s = th.mask.width / th.w, k = th.w / size;
+      const ox = th.w / 2, oy = th.w * .47, ax = (w.x - sx) * k + ox, ay = (w.y - sy - size * .03) * k + oy, bx = (x - sx) * k + ox, by = (y - sy - size * .03) * k + oy;
+      const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / 5));
+      for (let i = 1; i <= n; i++) paintWater(mctx, lerp(ax, bx, i / n) * s, lerp(ay, by, i / n) * s, th.w * .11 * s);
+      th.until = performance.now() + 7000; activeThumbs.add(th); composeThumb(th);
+      w.slot.c.seen = now(); learn('water'); saveSoon();
+    }
+  } else if (w.moved) {                                          // 판을 잡고 돌리기
+    const a = angAt(x, y); let d = a - w.a; if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2;
+    wheelAng += d; wheelVel = d; w.a = a; learn('spin');
+  }
+  w.x = x; w.y = y; wheelDirty = true;
+});
+function endWheel(e, cancel) {
+  const w = wheelPtr; if (!w || e.pointerId !== w.id) return;
+  wheelPtr = null;
+  if (w.slot) w.slot.del = null;
+  if (!cancel && w.slot && !w.moved && performance.now() - w.t0 < 400) openById(w.slot.c.id);
+  wheelDirty = true;
+}
+wheelCv.addEventListener('pointerup', e => endWheel(e, false));
+wheelCv.addEventListener('pointercancel', e => endWheel(e, true));
+wheelCv.addEventListener('wheel', e => { e.preventDefault(); wheelAng += e.deltaY * .003; wheelVel = 0; wheelDirty = true; learn('spin'); }, { passive: false });
+wheelCv.addEventListener('contextmenu', e => e.preventDefault());
+function checkHolds() {                                          // 3초 꾹 = 지우기
+  const w = wheelPtr;
+  if (w && w.slot && w.slot.del && performance.now() - w.slot.del.t0 >= 3000) {
+    const id = w.slot.c.id; wheelPtr = null; removeClay(id);
+  }
+  requestAnimationFrame(checkHolds);
+}
+requestAnimationFrame(checkHolds);
 function openById(id) { const c = clays.find(x => x.id === id); if (c) openClay(c); }
-function removeClay(id, el) {
+function removeClay(id) {
   const i = clays.findIndex(c => c.id === id); if (i < 0) return;
   const c = clays[i];
-  clays.splice(i, 1); cards.delete(id); activeCards.delete(el); save(); buzz(30);
-  el.classList.add('dying');
-  setTimeout(() => { el.remove(); refreshHome(); }, RM ? 0 : 420);
-  lastRemoved = c;
-  toast('납작하게 눌러 지웠어요', '되돌리기', () => {
-    if (!lastRemoved) return;
-    clays.push(lastRemoved); lastRemoved = null; save(); refreshHome();
-  });
+  clays.splice(i, 1); save(); buzz(30); lastRemoved = c;
+  if (focusId === id) focusId = null;
+  refreshHome();
+  toast('납작하게 눌러 지웠어요', '되돌리기', () => { if (!lastRemoved) return; clays.push(lastRemoved); lastRemoved = null; save(); refreshHome(); });
 }
 
-/* ───────── 홈: 반죽에서 떼어내기 ───────── */
+/* ───────── 홈: 흙에서 떼어내기 ───────── */
 const dough = $('#dough'), doughCv = $('#dough-cv'), piece = $('#piece');
 function renderBlob(target, size, R, cyRatio, c) {
   thumbR.size(size, size);
@@ -1233,10 +1329,9 @@ function endPull(e, cancel) {
   if (!pull || e.pointerId !== pull.id) return;
   const p = pull; pull = null;
   dough.classList.remove('pull'); doughCv.style.transform = '';
-  const dy = p.y0 - p.y;
-  if (!cancel && p.on && dy > 80) { tearOff(); return; }
+  if (!cancel && p.on && p.y0 - p.y > 80) { tearOff(); return; }
   piece.classList.remove('on');
-  if (!cancel && Math.hypot(p.x - p.x0, p.y - p.y0) < 8) toast('반죽을 위로 끌어 떼어내세요');
+  if (!cancel && Math.hypot(p.x - p.x0, p.y - p.y0) < 8) toast('흙을 위로 끌어 떼어내세요');
 }
 dough.addEventListener('pointerup', e => endPull(e, false));
 dough.addEventListener('pointercancel', e => endPull(e, true));
@@ -1244,7 +1339,7 @@ dough.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ')
 function tearOff() {
   const c = newClay(); clays.push(c); save(); buzz(14);
   piece.classList.add('on'); void piece.offsetWidth;
-  piece.classList.add('fly'); placePiece(W / 2, cy, R0 / 30);
+  piece.classList.add('fly'); placePiece(W / 2, baseCy, R0 / 30);
   setTimeout(() => { openClay(c, { spawn: true }); piece.classList.remove('fly', 'on'); }, RM ? 0 : 300);
 }
 
@@ -1257,7 +1352,7 @@ function toast(msg, act, fn) {
   toastMsg.textContent = msg; toastFn = fn || null;
   toastAct.hidden = !act; toastAct.textContent = act || '';
   toastEl.classList.add('on'); clearTimeout(toastT);
-  toastT = setTimeout(() => { toastEl.classList.remove('on'); toastFn = null; }, act ? 4500 : 2400);
+  toastT = setTimeout(() => { toastEl.classList.remove('on'); toastFn = null; }, act ? 4500 : 2600);
 }
 toastAct.addEventListener('click', () => { const f = toastFn; toastEl.classList.remove('on'); toastFn = null; if (f) f(); });
 
@@ -1266,33 +1361,21 @@ function boot() {
   try { workR = new Renderer(glCv, false); thumbR = new Renderer(document.createElement('canvas'), true); }
   catch (e) { console.error(e); $('#fallback').hidden = false; return; }
   buildNoise(); loadLearned();
-  if (!COARSE) { modeEl.hidden = false; let m = 'draw'; try { m = localStorage.getItem(INPUT) || 'draw'; } catch (_) { /* 무시 */ } setInputMode(m); }
+  if (DEMO) $('#demo-tag').hidden = false;
   layout();
   renderDough();
   const saved = load();
-  if (saved) {
-    clays = saved; clays.forEach(ensureCrack);
-    showView('home'); refreshHome(true);
-  } else {                                           // 처음 열면: 흰 화면에 점토 한 덩이
-    clays = makeExamples();
-    const c = newClay(); clays.push(c); save();
-    openClay(c);
-  }
+  if (saved) { clays = saved; clays.forEach(c => { ensureCrack(c); ensureBroken(c); }); showView('home'); refreshHome(true); }
+  else { clays = makeExamples(); const c = newClay(); clays.push(c); save(); openClay(c); }
   if (CONFIG.photo) {
     const img = new Image();
-    img.onload = () => { workR.setPhoto(img); thumbR.setPhoto(img); if (cur && view === 'work') openClay(cur); if (view === 'home') refreshHome(true); };
+    img.onload = () => { workR.setPhoto(img); thumbR.setPhoto(img); if (cur && view === 'work') rebuildMaps(); if (view === 'home') refreshHome(true); };
     img.src = CONFIG.photo;
-  }
-  // 글자 도장용 글꼴이 늦게 오면 다시 찍는다
-  if (document.fonts && document.fonts.load) {
-    document.fonts.load(TEXT_FONT(22)).then(() => {
-      if (cur && view === 'work' && hasWriting(cur) && !typing) { workR.upload(mapFull.rgba, mapFull.build(cur), 0); dirtyGL = true; }
-      if (view === 'home') refreshHome(true);
-    }).catch(() => { /* 글꼴 없이도 동작 */ });
   }
   requestAnimationFrame(frame);
   let rt = 0;
   addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { layout(); if (view === 'home') refreshHome(true); }, 120); });
+  addEventListener('hashchange', () => location.reload());
   document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
   addEventListener('pagehide', save);
 }
