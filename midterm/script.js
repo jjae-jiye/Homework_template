@@ -1096,6 +1096,12 @@ function turnSoften(g, x, y) {
    굳은 점토 — 문지르기 = 물 묻혀 글 보기, 빠르게 톡톡 여러 번 = 조각나 부서짐(지우기)
               방금 새로 만든 점토만 가장자리를 동글동글 문지르면 다시 말랑해진다
    깨진 점토 — 굳은 점토와 같다: 문지르면 물만 묻고, 다시 말랑해지지 않는다 */
+// 아이패드 사파리: 펜슬로 긋는 동작이 '글자 선택·돋보기·화면 확대'로 새지 않게 막는다 (포인터 이벤트는 그대로 들어온다)
+document.addEventListener('selectstart', e => e.preventDefault());
+document.addEventListener('gesturestart', e => e.preventDefault());
+for (const t of ['touchstart', 'touchmove']) {
+  document.addEventListener(t, e => { if (e.target.closest && e.target.closest('#stage, #wheel, #dough')) e.preventDefault(); }, { passive: false });
+}
 const stage = $('#stage'), pts = new Map();   // 수업: 손가락 번호(pointerId) → 그 손가락 정보, Map() 구조
 let gest = null, lastTwoTap = null, tap2 = null;   // tap2: 지금 두 손가락이 톡 닿았는지 (마른 점토여도)
 const fillZoom = () => { const R = R0 * shrinkOf(moist(cur)); return clamp(Math.min(W / (2 * R * cur.sx), Hs / (2 * R * cur.sy)) * .94, 1.4, 5); };

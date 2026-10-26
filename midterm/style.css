@@ -12,14 +12,14 @@
   --toast:#4a3f35;
   --toast-ink:#f6f2ec;
   --toast-act:#e6d3b6;
-  --f-ui:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
-  --f-stamp:"Nanum Myeongjo","AppleMyungjo","Batang",serif;
-  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+  --f-ui:"Pretendard Variable","Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --f-stamp:var(--f-ui);
+  --f-mono:var(--f-ui);
   color-scheme:light;
 }
 *{box-sizing:border-box}
 [hidden]{display:none!important}
-html,body{height:100%;margin:0;color:var(--ink);font-family:var(--f-ui);overflow:hidden;overscroll-behavior:none;-webkit-text-size-adjust:100%;
+html,body{height:100%;margin:0;color:var(--ink);font-family:var(--f-ui);overflow:hidden;overscroll-behavior:none;-webkit-text-size-adjust:100%;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
   background:var(--paper) radial-gradient(120% 80% at 50% -10%,#fbf8f3 0%,var(--paper) 55%,var(--paper-2) 100%) no-repeat fixed}
 button{font:inherit;color:inherit;cursor:pointer}
 :focus-visible{outline:2px solid var(--ink);outline-offset:3px}
